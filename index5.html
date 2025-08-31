@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Logic Gate Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            background: #0d1117;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .header {
+            background: #161b22;
+            padding: 12px;
+            border-bottom: 1px solid #30363d;
+            z-index: 100;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 0 10px;
+            border-right: 1px solid #30363d;
+        }
+
+        .control-group:last-child {
+            border-right: none;
+        }
+
+        .control-group label {
+            color: #8b949e;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button, .toggle-btn {
+            padding: 6px 14px;
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button:hover, .toggle-btn:hover {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+
+        .toggle-btn.active {
+            background: #1f6feb;
+            border-color: #388bfd;
+            color: white;
+        }
+
+        /* Gate button gradients */
+        button[data-gate="notnor"]::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, #ef4444, #fbbf24, #22c55e);
+            opacity: 0.6;
+        }
+
+        button[data-gate="or"]::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, #ef4444, #22c55e);
+            opacity: 0.6;
+        }
+
+        button[data-gate="led"]::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 2px;
+            background: #fbbf24;
+            opacity: 0.6;
+        }
+
+        button[data-gate="switch"]::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, #7f1d1d, #ef4444);
+            opacity: 0.6;
+        }
+
+        .zoom-indicator {
+            color: #8b949e;
+            font-size: 11px;
+            padding: 4px 8px;
+            background: #21262d;
+            border-radius: 4px;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        #canvas-container.grabbing {
+            cursor: grabbing;
+        }
+
+        #canvas-container.placing {
+            cursor: crosshair;
+        }
+
+        #canvas-container.selecting {
+            cursor: crosshair;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            padding: 6px 14px;
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            display: inline-block;
+        }
+
+        .file-label:hover {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+
+        .library-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .library-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: #161b22;
+            min-width: 250px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-top: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 200;
+        }
+
+        .library-content.show {
+            display: block;
+        }
+
+        .library-item {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #30363d;
+            font-size: 12px;
+            color: #c9d1d9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .library-item:hover {
+            background: #21262d;
+        }
+
+        .library-item-name {
+            flex: 1;
+        }
+
+        .library-item-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .library-item button {
+            padding: 2px 6px;
+            font-size: 10px;
+        }
+
+        .empty-library {
+            padding: 20px;
+            text-align: center;
+            color: #8b949e;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="control-group">
+            <label>Gates</label>
+            <button class="toggle-btn" data-gate="notnor">NOT/NOR</button>
+            <button class="toggle-btn" data-gate="or">OR</button>
+            <button class="toggle-btn" data-gate="led">LED</button>
+            <button class="toggle-btn" data-gate="switch">SWITCH</button>
+        </div>
+        
+        <div class="control-group">
+            <label>Tools</label>
+            <button class="toggle-btn" id="selectBtn">SELECT</button>
+        </div>
+
+        <div class="control-group">
+            <label>Components</label>
+            <div class="library-dropdown">
+                <button id="libraryBtn" onclick="toggleLibrary()">LIBRARY ▼</button>
+                <div class="library-content" id="libraryContent"></div>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>File</label>
+            <button onclick="clearCanvas()">CLEAR</button>
+            <button onclick="saveCircuit()">SAVE</button>
+            <label for="loadFile" class="file-label">LOAD</label>
+            <input type="file" id="loadFile" accept=".json" onchange="loadCircuit(event)">
+        </div>
+
+        <div class="control-group">
+            <span class="zoom-indicator" id="zoomIndicator">100%</span>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvas-container');
+        
+        let gates = [];
+        let connections = [];
+        let savedComponents = [];
+        let selectedGate = null;
+        let draggedGate = null;
+        let mousePos = { x: 0, y: 0 };
+        let worldMousePos = { x: 0, y: 0 };
+        let lastMousePos = { x: 0, y: 0 };
+        let mouseDownPos = { x: 0, y: 0 };
+        let connecting = false;
+        let cutting = false;
+        let hasDragged = false;
+        let panning = false;
+        let selecting = false;
+        let placingGate = null;
+        let selectionRect = null;
+        let selectedGates = new Set();
+        
+        // Viewport for zoom/pan
+        let viewport = {
+            x: 0,
+            y: 0,
+            zoom: 1,
+            minZoom: 0.1,
+            maxZoom: 5
+        };
+
+        function resizeCanvas() {
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetHeight;
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function screenToWorld(x, y) {
+            return {
+                x: (x - viewport.x) / viewport.zoom,
+                y: (y - viewport.y) / viewport.zoom
+            };
+        }
+
+        function worldToScreen(x, y) {
+            return {
+                x: x * viewport.zoom + viewport.x,
+                y: y * viewport.zoom + viewport.y
+            };
+        }
+
+        class Gate {
+            constructor(type, x, y) {
+                this.type = type;
+                this.x = x;
+                this.y = y;
+                this.radius = 30;
+                this.id = Date.now() + Math.random();
+                this.value = false;
+                this.inputConnections = [];
+                this.outputConnections = [];
+                this.rotationState = 0;
+                this.selected = false;
+                
+                if (type === 'switch') {
+                    this.value = false;
+                }
+            }
+
+            getRotationAngle() {
+                return (this.rotationState * Math.PI) / 8;
+            }
+
+            rotate(direction) {
+                if (direction > 0) {
+                    this.rotationState = (this.rotationState + 1) % 16;
+                } else {
+                    this.rotationState = (this.rotationState - 1 + 16) % 16;
+                }
+            }
+
+            getInputPosition() {
+                const angle = this.getRotationAngle();
+                return {
+                    x: this.x + Math.cos(angle + Math.PI) * this.radius,
+                    y: this.y + Math.sin(angle + Math.PI) * this.radius
+                };
+            }
+
+            getOutputPosition() {
+                const angle = this.getRotationAngle();
+                return {
+                    x: this.x + Math.cos(angle) * this.radius,
+                    y: this.y + Math.sin(angle) * this.radius
+                };
+            }
+
+            draw() {
+                const screenPos = worldToScreen(this.x, this.y);
+                const screenRadius = this.radius * viewport.zoom;
+                
+                ctx.save();
+                ctx.translate(screenPos.x, screenPos.y);
+                ctx.scale(viewport.zoom, viewport.zoom);
+                ctx.rotate(this.getRotationAngle());
+                
+                // Selection highlight
+                if (this.selected) {
+                    ctx.strokeStyle = '#58a6ff';
+                    ctx.lineWidth = 3 / viewport.zoom;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius + 5, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                
+                // LED glow effect
+                if (this.type === 'led') {
+                    if (this.value) {
+                        ctx.shadowColor = '#fbbf24';
+                        ctx.shadowBlur = 60;
+                    } else {
+                        // Radial yellow gradient when off
+                        const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
+                        glowGradient.addColorStop(0, 'rgba(251, 191, 36, 0.4)');
+                        glowGradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
+                        ctx.beginPath();
+                        ctx.arc(0, 0, this.radius * 1.5, 0, Math.PI * 2);
+                        ctx.fillStyle = glowGradient;
+                        ctx.fill();
+                    }
+                } else if (this.type === 'switch' && !this.value) {
+                    // Radial gray gradient when off
+                    const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
+                    glowGradient.addColorStop(0, 'rgba(139, 148, 158, 0.3)');
+                    glowGradient.addColorStop(1, 'rgba(139, 148, 158, 0)');
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius * 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = glowGradient;
+                    ctx.fill();
+                }
+                
+                // Draw signal flow stripe
+                if (this.type === 'notnor') {
+                    const gradient = ctx.createLinearGradient(-this.radius, 0, this.radius, 0);
+                    const hasActiveInput = this.inputConnections.some(conn => conn.from.value);
+                    
+                    if (hasActiveInput) {
+                        gradient.addColorStop(0, '#22c55e');
+                        gradient.addColorStop(0.5, '#fbbf24');
+                        gradient.addColorStop(1, '#ef4444');
+                    } else {
+                        gradient.addColorStop(0, '#ef4444');
+                        gradient.addColorStop(0.5, '#fbbf24');
+                        gradient.addColorStop(1, '#22c55e');
+                    }
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 12;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(-this.radius * 0.8, 0);
+                    ctx.lineTo(this.radius * 0.8, 0);
+                    ctx.stroke();
+                } else if (this.type === 'or') {
+                    const gradient = ctx.createLinearGradient(-this.radius, 0, this.radius, 0);
+                    const hasActiveInput = this.inputConnections.some(conn => conn.from.value);
+                    
+                    gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444');
+                    gradient.addColorStop(1, this.value ? '#22c55e' : '#ef4444');
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 12;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(-this.radius * 0.8, 0);
+                    ctx.lineTo(this.radius * 0.8, 0);
+                    ctx.stroke();
+                } else if (this.type === 'switch') {
+                    const gradient = ctx.createLinearGradient(0, 0, this.radius, 0);
+                    gradient.addColorStop(0, this.value ? '#16a34a' : '#7f1d1d');
+                    gradient.addColorStop(1, this.value ? '#22c55e' : '#ef4444');
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 12;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(this.radius * 0.8, 0);
+                    ctx.stroke();
+                } else if (this.type === 'led' && !this.value) {
+                    const hasActiveInput = this.inputConnections.some(conn => conn.from.value);
+                    const gradient = ctx.createLinearGradient(-this.radius, 0, 0, 0);
+                    gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444');
+                    gradient.addColorStop(1, '#1a202c');
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 12;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(-this.radius * 0.8, 0);
+                    ctx.lineTo(0, 0);
+                    ctx.stroke();
+                }
+                
+                // Glass circle
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                
+                if (this.type === 'led' && this.value) {
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(251, 191, 36, 0.8)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = this.type === 'led' ? 'rgba(251, 191, 36, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    
+                    // Glass highlight
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius - 2, -Math.PI * 0.7, -Math.PI * 0.3);
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+                
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+
+            isPointInInput(x, y) {
+                if (this.type === 'switch') return false;
+                const angle = this.getRotationAngle();
+                const cos = Math.cos(-angle);
+                const sin = Math.sin(-angle);
+                const localX = (x - this.x) * cos - (y - this.y) * sin;
+                const dist = Math.hypot(x - this.x, y - this.y);
+                return dist < this.radius && localX < -this.radius * 0.3;
+            }
+
+            isPointInOutput(x, y) {
+                if (this.type === 'led') return false;
+                const angle = this.getRotationAngle();
+                const cos = Math.cos(-angle);
+                const sin = Math.sin(-angle);
+                const localX = (x - this.x) * cos - (y - this.y) * sin;
+                const dist = Math.hypot(x - this.x, y - this.y);
+                return dist < this.radius && localX > this.radius * 0.3;
+            }
+
+            isPointInside(x, y) {
+                return Math.hypot(x - this.x, y - this.y) < this.radius;
+            }
+
+            update() {
+                if (this.type === 'notnor') {
+                    if (this.inputConnections.length === 0) {
+                        this.value = true;
+                    } else {
+                        this.value = !this.inputConnections.some(conn => conn.from.value);
+                    }
+                } else if (this.type === 'or') {
+                    this.value = this.inputConnections.some(conn => conn.from.value);
+                } else if (this.type === 'led') {
+                    this.value = this.inputConnections.some(conn => conn.from.value);
+                }
+            }
+        }
+
+        function drawGrid() {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            
+            const gridSize = 20 * viewport.zoom;
+            const offsetX = viewport.x % gridSize;
+            const offsetY = viewport.y % gridSize;
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            for (let x = offsetX; x < canvas.width; x += gridSize) {
+                for (let y = offsetY; y < canvas.height; y += gridSize) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, 1, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
+        }
+
+        function updateLogic() {
+            gates.forEach(gate => gate.update());
+        }
+
+        function lineIntersects(p1, p2, p3, p4) {
+            const det = (p2.x - p1.x) * (p4.y - p3.y) - (p4.x - p3.x) * (p2.y - p1.y);
+            if (Math.abs(det) < 0.001) return false;
+            
+            const lambda = ((p4.y - p3.y) * (p4.x - p1.x) + (p3.x - p4.x) * (p4.y - p1.y)) / det;
+            const gamma = ((p1.y - p2.y) * (p4.x - p1.x) + (p2.x - p1.x) * (p4.y - p1.y)) / det;
+            
+            return (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid
+            drawGrid();
+            
+            // Draw connections
+            connections.forEach(conn => {
+                const fromPos = worldToScreen(conn.from.getOutputPosition().x, conn.from.getOutputPosition().y);
+                const toPos = worldToScreen(conn.to.getInputPosition().x, conn.to.getInputPosition().y);
+                
+                ctx.strokeStyle = conn.from.value ? '#22c55e' : '#ef4444';
+                ctx.lineWidth = 10 * viewport.zoom;
+                ctx.beginPath();
+                ctx.moveTo(fromPos.x, fromPos.y);
+                
+                const dx = toPos.x - fromPos.x;
+                const dy = toPos.y - fromPos.y;
+                const dist = Math.hypot(dx, dy);
+                
+                const fromAngle = conn.from.getRotationAngle();
+                const toAngle = conn.to.getRotationAngle();
+                
+                const cp1x = fromPos.x + Math.cos(fromAngle) * Math.min(dist * 0.4, 100 * viewport.zoom);
+                const cp1y = fromPos.y + Math.sin(fromAngle) * Math.min(dist * 0.4, 100 * viewport.zoom);
+                const cp2x = toPos.x + Math.cos(toAngle + Math.PI) * Math.min(dist * 0.4, 100 * viewport.zoom);
+                const cp2y = toPos.y + Math.sin(toAngle + Math.PI) * Math.min(dist * 0.4, 100 * viewport.zoom);
+                
+                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, toPos.x, toPos.y);
+                ctx.stroke();
+            });
+            
+            // Draw selection rectangle (solid)
+            if (selecting && selectionRect) {
+                ctx.strokeStyle = '#58a6ff';
+                ctx.fillStyle = 'rgba(88, 166, 255, 0.1)';
+                ctx.lineWidth = 2;
+                ctx.fillRect(
+                    selectionRect.x,
+                    selectionRect.y,
+                    selectionRect.width,
+                    selectionRect.height
+                );
+                ctx.strokeRect(
+                    selectionRect.x,
+                    selectionRect.y,
+                    selectionRect.width,
+                    selectionRect.height
+                );
+            }
+            
+            // Draw cutting line
+            if (cutting) {
+                ctx.strokeStyle = '#ef4444';
+                ctx.setLineDash([8, 8]);
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(lastMousePos.x, lastMousePos.y);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            // Draw temp connection
+            if (connecting && selectedGate) {
+                const pos = worldToScreen(selectedGate.getOutputPosition().x, selectedGate.getOutputPosition().y);
+                ctx.strokeStyle = '#60a5fa';
+                ctx.setLineDash([8, 8]);
+                ctx.lineWidth = 8 * viewport.zoom;
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            // Draw gates
+            gates.forEach(gate => gate.draw());
+            
+            // Draw placing preview
+            if (placingGate) {
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                const previewGate = new Gate(placingGate, worldMousePos.x, worldMousePos.y);
+                previewGate.draw();
+                ctx.restore();
+            }
+        }
+
+        // Toggle buttons for gate placement
+        document.querySelectorAll('[data-gate]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const gateType = btn.dataset.gate;
+                if (btn.classList.contains('active')) {
+                    btn.classList.remove('active');
+                    placingGate = null;
+                    container.classList.remove('placing');
+                } else {
+                    document.querySelectorAll('[data-gate]').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    placingGate = gateType;
+                    container.classList.add('placing');
+                }
+            });
+        });
+
+        // Toggle buttons for tools
+        document.getElementById('selectBtn').addEventListener('click', function() {
+            selecting = !selecting;
+            this.classList.toggle('active');
+            container.classList.toggle('selecting', selecting);
+            if (!selecting) {
+                selectedGates.clear();
+                gates.forEach(g => g.selected = false);
+                draw();
+            }
+        });
+
+        // Library functions
+        function toggleLibrary() {
+            const content = document.getElementById('libraryContent');
+            content.classList.toggle('show');
+            if (content.classList.contains('show')) {
+                updateLibrary();
+            }
+        }
+
+        function updateLibrary() {
+            const content = document.getElementById('libraryContent');
+            content.innerHTML = '';
+            
+            if (savedComponents.length === 0) {
+                content.innerHTML = '<div class="empty-library">No saved components.<br>Use SELECT tool to save.</div>';
+                return;
+            }
+            
+            savedComponents.forEach((comp, i) => {
+                const item = document.createElement('div');
+                item.className = 'library-item';
+                item.innerHTML = `
+                    <div class="library-item-name">${comp.name}</div>
+                    <div class="library-item-actions">
+                        <button onclick="placeComponent(${i})">Place</button>
+                        <button onclick="deleteComponent(${i})">×</button>
+                    </div>
+                `;
+                content.appendChild(item);
+            });
+        }
+
+        function placeComponent(index) {
+            const comp = savedComponents[index];
+            const centerX = worldMousePos.x || 200;
+            const centerY = worldMousePos.y || 200;
+            
+            const newGates = [];
+            comp.gates.forEach(g => {
+                const gate = new Gate(g.type, centerX + g.x, centerY + g.y);
+                gate.rotationState = g.rotationState;
+                gates.push(gate);
+                newGates.push(gate);
+            });
+            
+            comp.connections.forEach(c => {
+                const conn = {
+                    from: newGates[c.fromIndex],
+                    to: newGates[c.toIndex]
+                };
+                connections.push(conn);
+                conn.to.inputConnections.push(conn);
+                conn.from.outputConnections.push(conn);
+            });
+            
+            document.getElementById('libraryContent').classList.remove('show');
+            updateLogic();
+            draw();
+        }
+
+        function deleteComponent(index) {
+            savedComponents.splice(index, 1);
+            updateLibrary();
+        }
+
+        // Close library when clicking outside
+        document.addEventListener('click', (e) => {
+            const library = document.getElementById('libraryBtn');
+            const content = document.getElementById('libraryContent');
+            if (!library.contains(e.target) && !content.contains(e.target)) {
+                content.classList.remove('show');
+            }
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mousePos.x = e.clientX - rect.left;
+            mousePos.y = e.clientY - rect.top;
+            worldMousePos = screenToWorld(mousePos.x, mousePos.y);
+            lastMousePos = { ...mousePos };
+            mouseDownPos = { ...mousePos };
+            hasDragged = false;
+            
+            if (placingGate) {
+                const gate = new Gate(placingGate, worldMousePos.x, worldMousePos.y);
+                gates.push(gate);
+                placingGate = null;
+                document.querySelectorAll('[data-gate]').forEach(b => b.classList.remove('active'));
+                container.classList.remove('placing');
+                draw();
+                return;
+            }
+            
+            if (selecting) {
+                selectionRect = {
+                    x: mousePos.x,
+                    y: mousePos.y,
+                    width: 0,
+                    height: 0
+                };
+                return;
+            }
+            
+            for (let gate of gates) {
+                if (gate.isPointInside(worldMousePos.x, worldMousePos.y)) {
+                    if (gate.isPointInOutput(worldMousePos.x, worldMousePos.y)) {
+                        selectedGate = gate;
+                        connecting = true;
+                        return;
+                    }
+                    
+                    draggedGate = gate;
+                    container.classList.add('grabbing');
+                    return;
+                }
+            }
+            
+            if (e.shiftKey) {
+                panning = true;
+                container.classList.add('grabbing');
+            } else {
+                cutting = true;
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mousePos.x = e.clientX - rect.left;
+            mousePos.y = e.clientY - rect.top;
+            worldMousePos = screenToWorld(mousePos.x, mousePos.y);
+            
+            if (Math.hypot(mousePos.x - mouseDownPos.x, mousePos.y - mouseDownPos.y) > 5) {
+                hasDragged = true;
+            }
+            
+            if (selecting && selectionRect) {
+                selectionRect.width = mousePos.x - selectionRect.x;
+                selectionRect.height = mousePos.y - selectionRect.y;
+                
+                const minX = Math.min(selectionRect.x, selectionRect.x + selectionRect.width);
+                const maxX = Math.max(selectionRect.x, selectionRect.x + selectionRect.width);
+                const minY = Math.min(selectionRect.y, selectionRect.y + selectionRect.height);
+                const maxY = Math.max(selectionRect.y, selectionRect.y + selectionRect.height);
+                
+                gates.forEach(gate => {
+                    const screenPos = worldToScreen(gate.x, gate.y);
+                    gate.selected = screenPos.x >= minX && screenPos.x <= maxX &&
+                                   screenPos.y >= minY && screenPos.y <= maxY;
+                    if (gate.selected) {
+                        selectedGates.add(gate);
+                    } else {
+                        selectedGates.delete(gate);
+                    }
+                });
+            }
+            
+            if (panning) {
+                viewport.x += mousePos.x - lastMousePos.x;
+                viewport.y += mousePos.y - lastMousePos.y;
+            }
+            
+            if (cutting && !draggedGate && !panning) {
+                const cutConnections = [];
+                const worldLastPos = screenToWorld(lastMousePos.x, lastMousePos.y);
+                connections.forEach(conn => {
+                    const fromPos = conn.from.getOutputPosition();
+                    const toPos = conn.to.getInputPosition();
+                    
+                    if (lineIntersects(worldLastPos, worldMousePos, fromPos, toPos)) {
+                        cutConnections.push(conn);
+                    }
+                });
+                
+                cutConnections.forEach(conn => {
+                    const idx = connections.indexOf(conn);
+                    if (idx > -1) connections.splice(idx, 1);
+                    
+                    const inputIdx = conn.to.inputConnections.indexOf(conn);
+                    if (inputIdx > -1) conn.to.inputConnections.splice(inputIdx, 1);
+                    
+                    const outputIdx = conn.from.outputConnections.indexOf(conn);
+                    if (outputIdx > -1) conn.from.outputConnections.splice(outputIdx, 1);
+                });
+                
+                if (cutConnections.length > 0) {
+                    updateLogic();
+                }
+            }
+            
+            lastMousePos = { ...mousePos };
+            
+            if (draggedGate) {
+                draggedGate.x = worldMousePos.x;
+                draggedGate.y = worldMousePos.y;
+                updateLogic();
+            }
+            
+            draw();
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (connecting && selectedGate) {
+                for (let gate of gates) {
+                    if (gate !== selectedGate && gate.isPointInInput(worldMousePos.x, worldMousePos.y)) {
+                        const newConnection = {
+                            from: selectedGate,
+                            to: gate
+                        };
+                        connections.push(newConnection);
+                        gate.inputConnections.push(newConnection);
+                        selectedGate.outputConnections.push(newConnection);
+                        updateLogic();
+                        break;
+                    }
+                }
+            }
+            
+            if (draggedGate && draggedGate.type === 'switch' && !hasDragged) {
+                draggedGate.value = !draggedGate.value;
+                updateLogic();
+            }
+            
+            if (selecting && selectionRect && selectedGates.size > 0) {
+                // Auto-save selection
+                const name = prompt('Save this selection as component:');
+                if (name) {
+                    // Calculate relative positions
+                    const selectedArray = Array.from(selectedGates);
+                    const minX = Math.min(...selectedArray.map(g => g.x));
+                    const minY = Math.min(...selectedArray.map(g => g.y));
+                    
+                    const component = {
+                        name: name,
+                        gates: selectedArray.map(g => ({
+                            type: g.type,
+                            x: g.x - minX,
+                            y: g.y - minY,
+                            rotationState: g.rotationState
+                        })),
+                        connections: connections.filter(c => 
+                            selectedGates.has(c.from) && selectedGates.has(c.to)
+                        ).map(c => ({
+                            fromIndex: selectedArray.indexOf(c.from),
+                            toIndex: selectedArray.indexOf(c.to)
+                        }))
+                    };
+                    savedComponents.push(component);
+                    updateLibrary();
+                }
+                
+                selectedGates.clear();
+                gates.forEach(g => g.selected = false);
+            }
+            
+            selectionRect = null;
+            draggedGate = null;
+            selectedGate = null;
+            connecting = false;
+            cutting = false;
+            panning = false;
+            hasDragged = false;
+            container.classList.remove('grabbing');
+            draw();
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            
+            const worldPos = screenToWorld(mousePos.x, mousePos.y);
+            let gateUnderMouse = null;
+            
+            for (let gate of gates) {
+                if (gate.isPointInside(worldPos.x, worldPos.y)) {
+                    gateUnderMouse = gate;
+                    break;
+                }
+            }
+            
+            if (gateUnderMouse) {
+                gateUnderMouse.rotate(e.deltaY < 0 ? 1 : -1);
+            } else {
+                const scaleFactor = e.deltaY < 0 ? 1.1 : 0.9;
+                const newZoom = Math.max(viewport.minZoom, Math.min(viewport.maxZoom, viewport.zoom * scaleFactor));
+                
+                const worldBeforeZoom = screenToWorld(mousePos.x, mousePos.y);
+                viewport.zoom = newZoom;
+                const worldAfterZoom = screenToWorld(mousePos.x, mousePos.y);
+                
+                viewport.x += (worldAfterZoom.x - worldBeforeZoom.x) * viewport.zoom;
+                viewport.y += (worldAfterZoom.y - worldBeforeZoom.y) * viewport.zoom;
+                
+                document.getElementById('zoomIndicator').textContent = Math.round(viewport.zoom * 100) + '%';
+            }
+            draw();
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            const worldPos = screenToWorld(mousePos.x, mousePos.y);
+            
+            for (let i = gates.length - 1; i >= 0; i--) {
+                if (gates[i].isPointInside(worldPos.x, worldPos.y)) {
+                    const gate = gates[i];
+                    
+                    connections = connections.filter(conn => {
+                        if (conn.from === gate || conn.to === gate) {
+                            if (conn.from === gate) {
+                                const idx = conn.to.inputConnections.indexOf(conn);
+                                if (idx > -1) conn.to.inputConnections.splice(idx, 1);
+                            }
+                            if (conn.to === gate) {
+                                const idx = conn.from.outputConnections.indexOf(conn);
+                                if (idx > -1) conn.from.outputConnections.splice(idx, 1);
+                            }
+                            return false;
+                        }
+                        return true;
+                    });
+                    
+                    gates.splice(i, 1);
+                    selectedGates.delete(gate);
+                    updateLogic();
+                    draw();
+                    break;
+                }
+            }
+        });
+
+        function clearCanvas() {
+            gates = [];
+            connections = [];
+            selectedGates.clear();
+            savedComponents = [];
+            viewport = { x: 0, y: 0, zoom: 1, minZoom: 0.1, maxZoom: 5 };
+            document.getElementById('zoomIndicator').textContent = '100%';
+            updateLibrary();
+            draw();
+        }
+
+        function saveCircuit() {
+            const circuit = {
+                gates: gates.map(g => ({
+                    type: g.type,
+                    x: g.x,
+                    y: g.y,
+                    id: g.id,
+                    value: g.value,
+                    rotationState: g.rotationState
+                })),
+                connections: connections.map(c => ({
+                    fromId: c.from.id,
+                    toId: c.to.id
+                })),
+                savedComponents: savedComponents,
+                viewport: viewport
+            };
+            
+            const blob = new Blob([JSON.stringify(circuit, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'circuit.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function loadCircuit(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const circuit = JSON.parse(e.target.result);
+                    
+                    gates = [];
+                    connections = [];
+                    selectedGates.clear();
+                    
+                    circuit.gates.forEach(g => {
+                        const gate = new Gate(g.type, g.x, g.y);
+                        gate.id = g.id;
+                        gate.value = g.value;
+                        gate.rotationState = g.rotationState || 0;
+                        gates.push(gate);
+                    });
+                    
+                    circuit.connections.forEach(c => {
+                        const fromGate = gates.find(g => g.id === c.fromId);
+                        const toGate = gates.find(g => g.id === c.toId);
+                        if (fromGate && toGate) {
+                            const conn = {
+                                from: fromGate,
+                                to: toGate
+                            };
+                            connections.push(conn);
+                            toGate.inputConnections.push(conn);
+                            fromGate.outputConnections.push(conn);
+                        }
+                    });
+                    
+                    if (circuit.savedComponents) {
+                        savedComponents = circuit.savedComponents;
+                        updateLibrary();
+                    }
+                    
+                    if (circuit.viewport) {
+                        viewport = circuit.viewport;
+                        document.getElementById('zoomIndicator').textContent = Math.round(viewport.zoom * 100) + '%';
+                    }
+                    
+                    updateLogic();
+                    draw();
+                } catch (err) {
+                    alert('Error loading circuit file');
+                    console.error(err);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        window.toggleLibrary = toggleLibrary;
+        window.placeComponent = placeComponent;
+        window.deleteComponent = deleteComponent;
+
+        function animate() {
+            updateLogic();
+            draw();
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>
