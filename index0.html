@@ -56,13 +56,43 @@ const circles = [];
 
 
 
-function drawCircles() {
-	ctx
 
 
 
+const elX = 100; elY = 100;
+const elementRadius = 64;
+const connectorRadius = 20;
+const crescentOffset = elementRadius - connectorRadius;
 
+ctx.fillStyle = 'rgba(80,80,80,0.5)';
+ctx.beginPath();
+ctx.arc(elX, elY, elementRadius - connectorRadius, 0, Math.PI * 2);
+ctx.fill();
+
+function drawCrescent(angleRad, outerR, color) {
+  // compute center of the offset circle (the one that creates the crescent)
+  const cx = elX + Math.cos(angleRad) * crescentOffset;
+  const cy = elY + Math.sin(angleRad) * crescentOffset;
+
+  ctx.save();
+  // clip to the element circle so only the overlapping part shows
+  ctx.beginPath();
+  ctx.arc(elX, elY, elementRadius - connectorRadius, 0, Math.PI * 2);
+  ctx.clip();
+
+  // draw the offset circle and fill it (the clip makes it a crescent)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
+
+// draw two crescents on opposite sides (like your code)
+const angle = 0; // rotation in radians; your code computes this from steps/rotation
+drawCrescent(angle, connectorRadius, 'rgba(255,255,0,0.9)');       // yellow crescent
+drawCrescent(Math.PI + angle, connectorRadius, 'rgba(0,255,0,0.9)'); // green crescent
+
 
 		</script>
 	</body>

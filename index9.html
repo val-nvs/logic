@@ -16,6 +16,7 @@
   <button id="addNotNor">Add Not/Nor</button>
   <button id="addLED">Add LED</button>
   <button id="addSwitch">Add Switch</button>
+  <button id="addJunction">Add Junction</button>
   <button id="exportJSON">Export JSON</button>
 </header>
 <canvas id="c"></canvas>
@@ -26,6 +27,7 @@ const CONFIG = {
   connectorRadius: 20,
   lineWidth: 24,
   elementRadius: 64,
+  junctionRadius: 16,
   shootLength: 100,
   gridSpacing: 40,
   tolerance: 15,
@@ -38,23 +40,30 @@ const CONFIG = {
 // Element types configuration
 const ELEMENT_TYPES = {
   'not/nor': {
-    hasYellow: true,
-    hasGreen: true,
+    hasOutput: true,  // yellow/output
+    hasInput: true,   // green/input
     color: 'rgba(30,150,200,0.35)',
     label: 'NOT/NOR'
   },
   'LED': {
-    hasYellow: false,
-    hasGreen: true,
+    hasOutput: false,
+    hasInput: true,
     color: 'rgba(255,100,100,0.35)',
     label: 'LED'
   },
   'SWITCH': {
-    hasYellow: true,
-    hasGreen: false,
+    hasOutput: true,
+    hasInput: false,
     color: 'rgba(100,255,100,0.35)',
     activeColor: 'rgba(150,255,150,0.6)',
     label: 'SWITCH'
+  },
+  'JUNCTION': {
+    hasOutput: false,
+    hasInput: false,
+    isJunction: true,
+    color: 'rgba(200,200,200,0.5)',
+    label: ''
   }
 };
 
@@ -66,7 +75,7 @@ const state = {
   ],
   connections: [],
   drawing: {active: false, startEl: null, startType: null},
-  dragging: {element: null, background: false, offsetX: 0, offsetY: 0},
+  dragging: {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null},
   transform: {scale: 1, offset: {x:0, y:0}},
   mouse: {pos: null, dragStart: {x:0, y:0}, offsetStart: {x:0, y:0}},
   lastClick: {time: 0, target: null}
@@ -103,7 +112,7 @@ const geometry = {
   getConnectorPos: (el, type) => {
     const r = CONFIG.elementRadius - CONFIG.connectorRadius;
     const angle = (el.rotation / CONFIG.steps) * 2 * Math.PI;
-    const multiplier = type === 'yellow' ? 1 : -1;
+    const multiplier = type === 'output' ? 1 : -1;
     return {
       x: el.x + multiplier * r * Math.cos(angle), 
       y: el.y + multiplier * r * Math.sin(angle)
@@ -156,8 +165,12 @@ const connections = {
   
   getUnderMouse: (worldPos) => {
     for (const c of state.connections) {
-      const start = geometry.getConnectorPos(c.startEl, c.startType);
-      const end = geometry.getConnectorPos(c.endEl, c.endType);
+      const start = c.startEl.type === 'JUNCTION' ? 
+        {x: c.startEl.x, y: c.startEl.y} : 
+        geometry.getConnectorPos(c.startEl, c.startType);
+      const end = c.endEl.type === 'JUNCTION' ? 
+        {x: c.endEl.x, y: c.endEl.y} : 
+        geometry.getConnectorPos(c.endEl, c.endType);
       const {cp1, cp2} = connections.getControlPoints(c, start, end);
       
       if (geometry.isPointOnBezier(worldPos, start, cp1, cp2, end)) return c;
@@ -166,8 +179,13 @@ const connections = {
   },
   
   getControlPoints: (connection, start, end) => {
-    const startDir = {x: start.x - connection.startEl.x, y: start.y - connection.startEl.y};
-    const endDir = {x: end.x - connection.endEl.x, y: end.y - connection.endEl.y};
+    const startDir = connection.startEl.type === 'JUNCTION' ? 
+      {x: end.x - start.x, y: end.y - start.y} :
+      {x: start.x - connection.startEl.x, y: start.y - connection.startEl.y};
+    const endDir = connection.endEl.type === 'JUNCTION' ?
+      {x: start.x - end.x, y: start.y - end.y} :
+      {x: end.x - connection.endEl.x, y: end.y - connection.endEl.y};
+    
     const startLen = Math.hypot(startDir.x, startDir.y);
     const endLen = Math.hypot(endDir.x, endDir.y);
     
@@ -175,8 +193,10 @@ const connections = {
     const endShoot = connection.endShootLength || CONFIG.shootLength;
     
     return {
-      cp1: {x: start.x + startDir.x/startLen*startShoot, y: start.y + startDir.y/startLen*startShoot},
-      cp2: {x: end.x + endDir.x/endLen*endShoot, y: end.y + endDir.y/endLen*endShoot}
+      cp1: {x: start.x + (startLen > 0 ? startDir.x/startLen*startShoot : 0), 
+            y: start.y + (startLen > 0 ? startDir.y/startLen*startShoot : 0)},
+      cp2: {x: end.x + (endLen > 0 ? endDir.x/endLen*endShoot : 0), 
+            y: end.y + (endLen > 0 ? endDir.y/endLen*endShoot : 0)}
     };
   }
 };
@@ -225,8 +245,12 @@ const drawing = {
   
   connections: () => {
     state.connections.forEach(c => {
-      const start = geometry.getConnectorPos(c.startEl, c.startType);
-      const end = geometry.getConnectorPos(c.endEl, c.endType);
+      const start = c.startEl.type === 'JUNCTION' ? 
+        {x: c.startEl.x, y: c.startEl.y} : 
+        geometry.getConnectorPos(c.startEl, c.startType);
+      const end = c.endEl.type === 'JUNCTION' ? 
+        {x: c.endEl.x, y: c.endEl.y} : 
+        geometry.getConnectorPos(c.endEl, c.endType);
       const {cp1, cp2} = connections.getControlPoints(c, start, end);
 
       // Check if connection involves an active switch
@@ -235,6 +259,7 @@ const drawing = {
       
       ctx.strokeStyle = isActive ? 'rgba(255,255,128,0.7)' : 'rgba(128,128,128,0.6)';
       ctx.lineWidth = CONFIG.lineWidth;
+      ctx.lineCap = 'square';
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
@@ -244,42 +269,51 @@ const drawing = {
   
   elements: () => {
     state.elements.forEach(el => {
-      const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
       const typeConfig = ELEMENT_TYPES[el.type];
       
-      // Main circle with type-specific color
-      let fillColor = typeConfig.color;
-      if (el.type === 'SWITCH' && el.active) {
-        fillColor = typeConfig.activeColor;
-      }
-      
-      ctx.fillStyle = fillColor;
-      ctx.beginPath();
-      ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
-      ctx.fill();
-      
-      // Draw type label
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.font = `${12/state.transform.scale}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      let label = typeConfig.label;
-      if (el.type === 'SWITCH') {
-        label += el.active ? ' ON' : ' OFF';
-      }
-      ctx.fillText(label, el.x, el.y);
-      ctx.restore();
-      
-      // Draw connectors based on type
-      const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
-      if (typeConfig.hasYellow) {
-        const yellowColor = el.type === 'SWITCH' && el.active ? 
-          'rgba(255,255,100,1)' : 'rgba(255,255,0,0.8)';
-        drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, yellowColor, radius);
-      }
-      if (typeConfig.hasGreen) {
-        drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(0,255,0,0.8)', radius);
+      if (el.type === 'JUNCTION') {
+        // Draw small junction circle
+        ctx.fillStyle = typeConfig.color;
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, CONFIG.junctionRadius, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        
+        // Main circle with type-specific color
+        let fillColor = typeConfig.color;
+        if (el.type === 'SWITCH' && el.active) {
+          fillColor = typeConfig.activeColor;
+        }
+        
+        ctx.fillStyle = fillColor;
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Draw type label
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = `${12/state.transform.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let label = typeConfig.label;
+        if (el.type === 'SWITCH') {
+          label += el.active ? ' ON' : ' OFF';
+        }
+        ctx.fillText(label, el.x, el.y);
+        ctx.restore();
+        
+        // Draw connectors based on type
+        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
+        if (typeConfig.hasOutput) {
+          const outputColor = el.type === 'SWITCH' && el.active ? 
+            'rgba(255,255,100,0.6)' : 'rgba(255,255,0,0.4)';
+          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, outputColor, radius);
+        }
+        if (typeConfig.hasInput) {
+          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(0,255,0,0.4)', radius);
+        }
       }
     });
   },
@@ -297,6 +331,7 @@ const drawing = {
 
     ctx.strokeStyle = 'rgba(128,128,128,0.8)';
     ctx.lineWidth = CONFIG.lineWidth;
+    ctx.lineCap = 'square';
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, mouseWorld.x, mouseWorld.y);
@@ -323,25 +358,32 @@ const input = {
   },
   
   getElementUnderMouse: (worldPos) => {
-    const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
-    return state.elements.find(el => geometry.isPointInCircle(worldPos, el, radius));
+    for (const el of state.elements) {
+      const radius = el.type === 'JUNCTION' ? 
+        CONFIG.junctionRadius : 
+        CONFIG.elementRadius - CONFIG.connectorRadius;
+      if (geometry.isPointInCircle(worldPos, el, radius)) {
+        return el;
+      }
+    }
+    return null;
   },
   
   getConnectorUnderMouse: (worldPos) => {
     for (const el of state.elements) {
       const typeConfig = ELEMENT_TYPES[el.type];
       
-      if (typeConfig.hasYellow) {
-        const yellow = geometry.getConnectorPos(el, 'yellow');
-        if (geometry.isPointInCircle(worldPos, yellow, CONFIG.connectorRadius)) {
-          return {el, type: 'yellow'};
+      if (typeConfig.hasOutput) {
+        const output = geometry.getConnectorPos(el, 'output');
+        if (geometry.isPointInCircle(worldPos, output, CONFIG.connectorRadius)) {
+          return {el, type: 'output'};
         }
       }
       
-      if (typeConfig.hasGreen) {
-        const green = geometry.getConnectorPos(el, 'green');
-        if (geometry.isPointInCircle(worldPos, green, CONFIG.connectorRadius)) {
-          return {el, type: 'green'};
+      if (typeConfig.hasInput) {
+        const input = geometry.getConnectorPos(el, 'input');
+        if (geometry.isPointInCircle(worldPos, input, CONFIG.connectorRadius)) {
+          return {el, type: 'input'};
         }
       }
     }
@@ -354,7 +396,10 @@ const input = {
     
     const element = input.getElementUnderMouse(worldPos);
     if (element) {
-      if (element.type === 'SWITCH') return 'pointer';
+      if (element.type === 'SWITCH') {
+        const connector = input.getConnectorUnderMouse(worldPos);
+        if (!connector) return 'pointer';
+      }
       return 'default';
     }
     
@@ -395,6 +440,9 @@ canvas.addEventListener('mousedown', e => {
   const worldPos = transform.screenToWorld(pos.x, pos.y);
   const currentTime = Date.now();
   
+  // Store initial position for drag detection
+  state.dragging.startPos = {...worldPos};
+  
   // Check for double click
   const isDoubleClick = currentTime - state.lastClick.time < CONFIG.doubleClickTime;
   
@@ -422,17 +470,7 @@ canvas.addEventListener('mousedown', e => {
   state.lastClick.time = currentTime;
   state.lastClick.target = element;
   
-  // Single click on switch toggles it
-  if (element && element.type === 'SWITCH' && !isDoubleClick) {
-    const connector = input.getConnectorUnderMouse(worldPos);
-    if (!connector) {
-      element.active = !element.active;
-      draw();
-      return;
-    }
-  }
-  
-  // Check connectors
+  // Check connectors first (for dragging connections)
   const connector = input.getConnectorUnderMouse(worldPos);
   if (connector) {
     state.drawing.active = true;
@@ -441,7 +479,7 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   
-  // Drag element
+  // Setup element dragging
   if (element) {
     state.dragging.element = element;
     state.dragging.offsetX = worldPos.x - element.x;
@@ -456,30 +494,48 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mouseup', e => {
+  const pos = input.getMousePos(e);
+  const worldPos = transform.screenToWorld(pos.x, pos.y);
+  
+  // Check if this was a click (not a drag) on a switch
+  if (state.dragging.element && 
+      state.dragging.element.type === 'SWITCH' && 
+      state.dragging.startPos &&
+      geometry.distance(worldPos, state.dragging.startPos) < 5) {
+    // Toggle switch if it wasn't dragged
+    const connector = input.getConnectorUnderMouse(worldPos);
+    if (!connector) {
+      state.dragging.element.active = !state.dragging.element.active;
+      draw();
+    }
+  }
+  
   if (state.dragging.background) {
     state.dragging.background = false;
   }
 
   if (state.drawing.active) {
-    const pos = input.getMousePos(e);
-    const worldPos = transform.screenToWorld(pos.x, pos.y);
     const connector = input.getConnectorUnderMouse(worldPos);
+    const targetElement = input.getElementUnderMouse(worldPos);
     
+    // Allow connections to connectors or junctions
     if (connector) {
       connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
+    } else if (targetElement && targetElement.type === 'JUNCTION') {
+      connections.add(state.drawing.startEl, state.drawing.startType, targetElement, 'junction');
     }
   }
 
   // Reset all interaction states
   Object.assign(state.drawing, {active: false, startEl: null, startType: null});
-  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0});
+  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null});
   state.mouse.pos = null;
   draw();
 });
 
 canvas.addEventListener('mouseleave', () => {
   Object.assign(state.drawing, {active: false, startEl: null, startType: null});
-  Object.assign(state.dragging, {element: null, background: false});
+  Object.assign(state.dragging, {element: null, background: false, startPos: null});
   state.mouse.pos = null;
   draw();
 });
@@ -488,9 +544,9 @@ canvas.addEventListener('wheel', e => {
   const pos = input.getMousePos(e);
   const worldPos = transform.screenToWorld(pos.x, pos.y);
   
-  // Element rotation
+  // Element rotation (not for junctions)
   const element = input.getElementUnderMouse(worldPos);
-  if (element) {
+  if (element && element.type !== 'JUNCTION') {
     element.rotation += e.deltaY > 0 ? 1 : -1;
     if (element.rotation < 0) element.rotation += CONFIG.steps;
     if (element.rotation >= CONFIG.steps) element.rotation -= CONFIG.steps;
@@ -541,6 +597,7 @@ function addElement(type) {
 document.getElementById('addNotNor').addEventListener('click', () => addElement('not/nor'));
 document.getElementById('addLED').addEventListener('click', () => addElement('LED'));
 document.getElementById('addSwitch').addEventListener('click', () => addElement('SWITCH'));
+document.getElementById('addJunction').addEventListener('click', () => addElement('JUNCTION'));
 
 document.getElementById('exportJSON').addEventListener('click', () => {
   const data = {
