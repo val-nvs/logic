@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Simplified Bezier Editor</title>
+  <title>Logic Circuit Bezier Editor</title>
   <style>
     html, body {margin:0; padding:0; height:100%; background:black; overflow:hidden;}
     canvas {display:block; cursor:default; margin-top:50px;}
@@ -17,6 +17,7 @@
   <button id="addLED">Add LED</button>
   <button id="addSwitch">Add Switch</button>
   <button id="addJunction">Add Junction</button>
+  <button id="loadJSON">Load JSON</button>
   <button id="exportJSON">Export JSON</button>
 </header>
 <canvas id="c"></canvas>
@@ -40,38 +41,43 @@ const CONFIG = {
 // Element types configuration
 const ELEMENT_TYPES = {
   'not/nor': {
-    hasOutput: true,  // yellow/output
-    hasInput: true,   // green/input
+    hasOutput: true,
+    hasInput: true,
     color: 'rgba(30,150,200,0.35)',
-    label: 'NOT/NOR'
+    label: 'NOT/NOR',
+    logicType: 'not'
   },
   'LED': {
     hasOutput: false,
     hasInput: true,
     color: 'rgba(255,100,100,0.35)',
-    label: 'LED'
+    activeColor: 'rgba(255,191,36,0.8)',
+    label: 'LED',
+    logicType: 'led'
   },
   'SWITCH': {
     hasOutput: true,
     hasInput: false,
     color: 'rgba(100,255,100,0.35)',
     activeColor: 'rgba(150,255,150,0.6)',
-    label: 'SWITCH'
+    label: 'SWITCH',
+    logicType: 'switch'
   },
   'JUNCTION': {
     hasOutput: false,
     hasInput: false,
     isJunction: true,
     color: 'rgba(200,200,200,0.5)',
-    label: ''
+    label: '',
+    logicType: 'junction'
   }
 };
 
 // App state
 const state = {
   elements: [
-    {x:200, y:200, rotation:0, type:'not/nor'}, 
-    {x:400, y:200, rotation:0, type:'not/nor'}
+    {x:200, y:200, rotation:0, type:'not/nor', value: false, inputConnections: [], outputConnections: []}, 
+    {x:400, y:200, rotation:0, type:'not/nor', value: false, inputConnections: [], outputConnections: []}
   ],
   connections: [],
   drawing: {active: false, startEl: null, startType: null},
@@ -133,6 +139,53 @@ const geometry = {
   }
 };
 
+// Logic simulation
+const logic = {
+  updateElement: (element) => {
+    const typeConfig = ELEMENT_TYPES[element.type];
+    
+    if (!element.inputConnections) element.inputConnections = [];
+    if (!element.outputConnections) element.outputConnections = [];
+    
+    switch (typeConfig.logicType) {
+      case 'not':
+        // NOT/NOR gate: output is true if no inputs are true
+        if (element.inputConnections.length === 0) {
+          element.value = true; // Default to true when no inputs
+        } else {
+          element.value = !element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+        }
+        break;
+        
+      case 'led':
+        // LED: lights up if any input is true
+        element.value = element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+        break;
+        
+      case 'switch':
+        // Switch: retains its manually set value
+        if (element.value === undefined) element.value = false;
+        break;
+        
+      case 'junction':
+        // Junction: passes through any true signal
+        element.value = element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+        break;
+    }
+  },
+  
+  getSignalValue: (element) => {
+    return element.value || false;
+  },
+  
+  updateAll: () => {
+    // Update all elements
+    state.elements.forEach(element => {
+      logic.updateElement(element);
+    });
+  }
+};
+
 // Connection utilities
 const connections = {
   exists: (aEl, aType, bEl, bType) => 
@@ -146,7 +199,15 @@ const connections = {
     if (startEl === endEl) return;
     
     if (!connections.exists(startEl, startType, endEl, endType)) {
-      state.connections.push({startEl, startType, endEl, endType});
+      const conn = {startEl, startType, endEl, endType};
+      state.connections.push(conn);
+      
+      // Add to connection arrays for logic simulation
+      if (!startEl.outputConnections) startEl.outputConnections = [];
+      if (!endEl.inputConnections) endEl.inputConnections = [];
+      
+      startEl.outputConnections.push(conn);
+      endEl.inputConnections.push(conn);
     }
   },
   
@@ -154,13 +215,26 @@ const connections = {
     const index = state.connections.indexOf(connection);
     if (index > -1) {
       state.connections.splice(index, 1);
+      
+      // Remove from connection arrays
+      if (connection.startEl.outputConnections) {
+        const outIdx = connection.startEl.outputConnections.indexOf(connection);
+        if (outIdx > -1) connection.startEl.outputConnections.splice(outIdx, 1);
+      }
+      
+      if (connection.endEl.inputConnections) {
+        const inIdx = connection.endEl.inputConnections.indexOf(connection);
+        if (inIdx > -1) connection.endEl.inputConnections.splice(inIdx, 1);
+      }
     }
   },
   
   removeByElement: (element) => {
-    state.connections = state.connections.filter(c => 
-      c.startEl !== element && c.endEl !== element
+    const toRemove = state.connections.filter(c => 
+      c.startEl === element || c.endEl === element
     );
+    
+    toRemove.forEach(conn => connections.remove(conn));
   },
   
   getUnderMouse: (worldPos) => {
@@ -253,11 +327,9 @@ const drawing = {
         geometry.getConnectorPos(c.endEl, c.endType);
       const {cp1, cp2} = connections.getControlPoints(c, start, end);
 
-      // Check if connection involves an active switch
-      const isActive = (c.startEl.type === 'SWITCH' && c.startEl.active) || 
-                      (c.endEl.type === 'SWITCH' && c.endEl.active);
-      
-      ctx.strokeStyle = isActive ? 'rgba(255,255,128,0.7)' : 'rgba(128,128,128,0.6)';
+      // Show signal state: green for true, red for false
+      const signalActive = logic.getSignalValue(c.startEl);
+      ctx.strokeStyle = signalActive ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.6)';
       ctx.lineWidth = CONFIG.lineWidth;
       ctx.lineCap = 'square';
       ctx.beginPath();
@@ -272,17 +344,26 @@ const drawing = {
       const typeConfig = ELEMENT_TYPES[el.type];
       
       if (el.type === 'JUNCTION') {
-        // Draw small junction circle
-        ctx.fillStyle = typeConfig.color;
+        // Draw junction with signal state color
+        const signalActive = logic.getSignalValue(el);
+        ctx.fillStyle = signalActive ? 'rgba(34,197,94,0.8)' : typeConfig.color;
         ctx.beginPath();
         ctx.arc(el.x, el.y, CONFIG.junctionRadius, 0, Math.PI*2);
         ctx.fill();
       } else {
         const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
         
-        // Main circle with type-specific color
+        // Main circle with type-specific color and signal state
         let fillColor = typeConfig.color;
-        if (el.type === 'SWITCH' && el.active) {
+        if (el.type === 'LED' && el.value) {
+          fillColor = typeConfig.activeColor;
+          // Add glow effect for active LED
+          ctx.save();
+          ctx.shadowColor = '#fbbf24';
+          ctx.shadowBlur = 40;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        } else if (el.type === 'SWITCH' && el.value) {
           fillColor = typeConfig.activeColor;
         }
         
@@ -291,28 +372,87 @@ const drawing = {
         ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
         ctx.fill();
         
+        if (el.type === 'LED' && el.value) {
+          ctx.restore(); // Reset shadow
+        }
+        
+        // Draw signal flow stripes
+        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
+        ctx.save();
+        ctx.translate(el.x, el.y);
+        ctx.rotate(angle);
+        
+        if (el.type === 'not/nor') {
+          // Signal flow stripe showing input and inverted output
+          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+          const gradient = ctx.createLinearGradient(-radius * 0.8, 0, radius * 0.8, 0);
+          gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444'); // Input state
+          gradient.addColorStop(1, el.value ? '#22c55e' : '#ef4444'); // Output state (inverted)
+          
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = 8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(-radius * 0.8, 0);
+          ctx.lineTo(radius * 0.8, 0);
+          ctx.stroke();
+        } else if (el.type === 'SWITCH') {
+          // Switch signal flow
+          const gradient = ctx.createLinearGradient(0, 0, radius * 0.8, 0);
+          gradient.addColorStop(0, el.value ? '#16a34a' : '#7f1d1d');
+          gradient.addColorStop(1, el.value ? '#22c55e' : '#ef4444');
+          
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = 8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(radius * 0.8, 0);
+          ctx.stroke();
+        } else if (el.type === 'LED') {
+          // LED input signal flow
+          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+          const gradient = ctx.createLinearGradient(-radius * 0.8, 0, 0, 0);
+          gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444');
+          gradient.addColorStop(1, el.value ? '#fbbf24' : '#1a202c');
+          
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = 8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(-radius * 0.8, 0);
+          ctx.lineTo(0, 0);
+          ctx.stroke();
+        }
+        
+        ctx.restore();
+        
         // Draw type label
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
         ctx.font = `${12/state.transform.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         let label = typeConfig.label;
         if (el.type === 'SWITCH') {
-          label += el.active ? ' ON' : ' OFF';
+          label += el.value ? ' ON' : ' OFF';
+        } else if (el.type === 'LED') {
+          label += el.value ? ' ON' : ' OFF';
         }
         ctx.fillText(label, el.x, el.y);
         ctx.restore();
         
-        // Draw connectors based on type
-        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
+        // Draw connectors based on type with signal state colors
         if (typeConfig.hasOutput) {
-          const outputColor = el.type === 'SWITCH' && el.active ? 
-            'rgba(255,255,100,0.6)' : 'rgba(255,255,0,0.4)';
+          const outputColor = el.value ? 
+            'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)';
           drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, outputColor, radius);
         }
         if (typeConfig.hasInput) {
-          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(0,255,0,0.4)', radius);
+          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
+          const inputColor = hasActiveInput ? 
+            'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)';
+          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, inputColor, radius);
         }
       }
     });
@@ -450,6 +590,7 @@ canvas.addEventListener('mousedown', e => {
   const connection = connections.getUnderMouse(worldPos);
   if (connection && isDoubleClick) {
     connections.remove(connection);
+    logic.updateAll();
     draw();
     return;
   }
@@ -462,6 +603,7 @@ canvas.addEventListener('mousedown', e => {
     if (index > -1) {
       state.elements.splice(index, 1);
     }
+    logic.updateAll();
     draw();
     return;
   }
@@ -505,7 +647,8 @@ canvas.addEventListener('mouseup', e => {
     // Toggle switch if it wasn't dragged
     const connector = input.getConnectorUnderMouse(worldPos);
     if (!connector) {
-      state.dragging.element.active = !state.dragging.element.active;
+      state.dragging.element.value = !state.dragging.element.value;
+      logic.updateAll();
       draw();
     }
   }
@@ -521,8 +664,10 @@ canvas.addEventListener('mouseup', e => {
     // Allow connections to connectors or junctions
     if (connector) {
       connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
+      logic.updateAll();
     } else if (targetElement && targetElement.type === 'JUNCTION') {
       connections.add(state.drawing.startEl, state.drawing.startType, targetElement, 'junction');
+      logic.updateAll();
     }
   }
 
@@ -582,22 +727,107 @@ function addElement(type) {
     x: 100 + Math.random() * 400, 
     y: 100 + Math.random() * 300, 
     rotation: 0,
-    type: type
+    type: type,
+    value: false,
+    inputConnections: [],
+    outputConnections: []
   };
   
-  // Switches start in off state
-  if (type === 'SWITCH') {
-    element.active = false;
-  }
-  
   state.elements.push(element);
+  logic.updateAll();
   draw();
 }
 
+// Layout loading function
+function loadLayout(data) {
+  // Clear current state
+  state.elements = [];
+  state.connections = [];
+  
+  // Load elements
+  if (data.elements && Array.isArray(data.elements)) {
+    state.elements = data.elements.map(el => ({
+      x: el.x || 0,
+      y: el.y || 0, 
+      rotation: el.rotation || 0,
+      type: el.type || 'not/nor',
+      value: el.value || false,
+      inputConnections: [],
+      outputConnections: []
+    }));
+  }
+  
+  // Load connections
+  if (data.connections && Array.isArray(data.connections)) {
+    data.connections.forEach(c => {
+      const startEl = state.elements[c.startIndex];
+      const endEl = state.elements[c.endIndex];
+      
+      if (startEl && endEl) {
+        const connection = {
+          startEl,
+          startType: c.startType || 'output',
+          endEl,
+          endType: c.endType || 'input'
+        };
+        
+        // Preserve custom shoot lengths if they exist
+        if (c.startShootLength !== undefined) {
+          connection.startShootLength = c.startShootLength;
+        }
+        if (c.endShootLength !== undefined) {
+          connection.endShootLength = c.endShootLength;
+        }
+        
+        state.connections.push(connection);
+        
+        // Add to connection arrays for logic simulation
+        if (!startEl.outputConnections) startEl.outputConnections = [];
+        if (!endEl.inputConnections) endEl.inputConnections = [];
+        
+        startEl.outputConnections.push(connection);
+        endEl.inputConnections.push(connection);
+      }
+    });
+  }
+  
+  // Reset transform and drawing state
+  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
+  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null});
+  state.mouse.pos = null;
+  
+  // Update logic and redraw
+  logic.updateAll();
+  draw();
+}
+
+// Button event listeners
 document.getElementById('addNotNor').addEventListener('click', () => addElement('not/nor'));
 document.getElementById('addLED').addEventListener('click', () => addElement('LED'));
 document.getElementById('addSwitch').addEventListener('click', () => addElement('SWITCH'));
 document.getElementById('addJunction').addEventListener('click', () => addElement('JUNCTION'));
+
+document.getElementById('loadJSON').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        loadLayout(data);
+      } catch (error) {
+        alert('Error loading JSON file: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
 
 document.getElementById('exportJSON').addEventListener('click', () => {
   const data = {
@@ -606,11 +836,9 @@ document.getElementById('exportJSON').addEventListener('click', () => {
         x: el.x, 
         y: el.y, 
         rotation: el.rotation,
-        type: el.type
+        type: el.type,
+        value: el.value
       };
-      if (el.type === 'SWITCH') {
-        obj.active = el.active;
-      }
       return obj;
     }),
     connections: state.connections.map(c => ({
@@ -627,7 +855,7 @@ document.getElementById('exportJSON').addEventListener('click', () => {
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), {
     href: url,
-    download: 'layout.json'
+    download: 'logic_circuit.json'
   });
   a.click();
   URL.revokeObjectURL(url);
@@ -636,7 +864,22 @@ document.getElementById('exportJSON').addEventListener('click', () => {
 // Initialize
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
-draw();
+
+// Initialize all elements with proper logic properties
+state.elements.forEach(el => {
+  if (!el.value) el.value = false;
+  if (!el.inputConnections) el.inputConnections = [];
+  if (!el.outputConnections) el.outputConnections = [];
+});
+
+// Animation loop for real-time logic simulation
+function animate() {
+  logic.updateAll();
+  draw();
+  requestAnimationFrame(animate);
+}
+
+animate();
 </script>
 </body>
 </html>

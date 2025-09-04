@@ -47,53 +47,48 @@
 			</div>
 
 		</div>
-		<canvas id="canvas"></canvas>
-		<script>
 
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d')
-const circles = [];
+		
+<canvas id="canvas"></canvas>
+<script>
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+const bubbleX=canvas.width/2,bubbleY=canvas.height/2,bubbleR=64,connectorR=20,crescentOffset=bubbleR-connectorR;
+const interactives=[];
 
+ctx.fillStyle='rgba(80,80,80,0.5)';ctx.beginPath();ctx.arc(bubbleX,bubbleY,crescentOffset,0,Math.PI*2);ctx.fill();interactives.push({type:'bubble',id:'mainBubble',x:bubbleX,y:bubbleY,r:crescentOffset}); // main bubble
 
+function drawCrescent(angle,r,color,id){const cx=bubbleX+Math.cos(angle)*crescentOffset,cy=bubbleY+Math.sin(angle)*crescentOffset;
+interactives.push({type:'crescent',id,x:cx,y:cy,r,mask:{x:bubbleX,y:bubbleY,r:crescentOffset}});
+ctx.save();ctx.beginPath();ctx.arc(bubbleX,bubbleY,crescentOffset,0,Math.PI*2);ctx.clip();ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();ctx.restore();} // draw crescent
 
+drawCrescent(0,connectorR,'rgba(0,255,0,0.3)','outputCrescent');drawCrescent(Math.PI,connectorR,'rgba(255,0,0,0.3)','inputCrescent'); // two crescents
 
+const innerR=20,borderThickness=connectorR,maxDistance=Math.min(canvas.width,canvas.height)/2-innerR-borderThickness;
+const innerAngle=Math.random()*2*Math.PI,innerDistance=Math.random()*(maxDistance-(crescentOffset+innerR))+(crescentOffset+innerR);
+const innerX=bubbleX+Math.cos(innerAngle)*innerDistance,innerY=bubbleY+Math.sin(innerAngle)*innerDistance;
 
+ctx.fillStyle='rgba(200,200,200,0.06)';ctx.beginPath();ctx.arc(innerX,innerY,innerR,0,Math.PI*2);ctx.fill();interactives.push({type:'innerBubble',id:'innerBubble',x:innerX,y:innerY,r:innerR}); // inner bubble fill
 
-const elX = 100; elY = 100;
-const elementRadius = 64;
-const connectorRadius = 20;
-const crescentOffset = elementRadius - connectorRadius;
+ctx.lineWidth=borderThickness;ctx.strokeStyle='rgba(255,255,255,0.6)';ctx.beginPath();ctx.arc(innerX,innerY,innerR+borderThickness/2,0,Math.PI*2);ctx.stroke();
+interactives.push({type:'innerBubbleBorder',id:'innerBubbleBorder',x:innerX,y:innerY,rOuter:innerR+borderThickness/2,rInner:innerR-borderThickness/2}); // inner bubble border clickable fully
 
-ctx.fillStyle = 'rgba(80,80,80,0.5)';
-ctx.beginPath();
-ctx.arc(elX, elY, elementRadius - connectorRadius, 0, Math.PI * 2);
-ctx.fill();
+canvas.addEventListener('click',e=>{const rect=canvas.getBoundingClientRect();const mx=(e.clientX-rect.left)*(canvas.width/rect.width);const my=(e.clientY-rect.top)*(canvas.height/rect.height);
 
-function drawCrescent(angleRad, outerR, color) {
-  // compute center of the offset circle (the one that creates the crescent)
-  const cx = elX + Math.cos(angleRad) * crescentOffset;
-  const cy = elY + Math.sin(angleRad) * crescentOffset;
+// check crescents
+for(const obj of interactives){if(obj.type!=='crescent')continue;const dx=mx-obj.x,dy=my-obj.y;if(Math.sqrt(dx*dx+dy*dy)<obj.r){const dxm=mx-obj.mask.x,dym=my-obj.mask.y;if(Math.sqrt(dxm*dxm+dym*dym)<=obj.mask.r){console.log('Clicked crescent',obj.id);return;}}} 
 
-  ctx.save();
-  // clip to the element circle so only the overlapping part shows
-  ctx.beginPath();
-  ctx.arc(elX, elY, elementRadius - connectorRadius, 0, Math.PI * 2);
-  ctx.clip();
+// inner bubble border (only ring)
+for(const obj of interactives){if(obj.type!=='innerBubbleBorder')continue;const dx=mx-obj.x,dy=my-obj.y,dist=Math.sqrt(dx*dx+dy*dy);if(dist>=obj.rInner&&dist<=obj.rOuter){console.log('Clicked innerBubbleBorder',obj.id);return;}} 
 
-  // draw the offset circle and fill it (the clip makes it a crescent)
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
+// inner bubble fill
+for(const obj of interactives){if(obj.type!=='innerBubble')continue;const dx=mx-obj.x,dy=my-obj.y;if(Math.sqrt(dx*dx+dy*dy)<obj.r){console.log('Clicked innerBubble',obj.id);return;}} 
 
-// draw two crescents on opposite sides (like your code)
-const angle = 0; // rotation in radians; your code computes this from steps/rotation
-drawCrescent(angle, connectorRadius, 'rgba(255,255,0,0.9)');       // yellow crescent
-drawCrescent(Math.PI + angle, connectorRadius, 'rgba(0,255,0,0.9)'); // green crescent
+// main bubble
+for(const obj of interactives){if(obj.type!=='bubble')continue;const dx=mx-obj.x,dy=my-obj.y;if(Math.sqrt(dx*dx+dy*dy)<obj.r){console.log('Clicked mainBubble',obj.id);return;}} 
+});
+</script>
 
 
-		</script>
+
 	</body>
 </html>
