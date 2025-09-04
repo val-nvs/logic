@@ -2,594 +2,224 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Simplified Logic Gate Simulator</title>
+  <title>Bezier with Filled Crescents and Drag Mask</title>
   <style>
     html, body {margin:0; padding:0; height:100%; background:black; overflow:hidden;}
-    canvas {display:block; cursor:default; margin-top:50px;}
+    canvas {display:block; cursor:default;}
     header {position:fixed; top:0; left:0; right:0; height:50px; background:#111; display:flex; align-items:center; padding:0 10px; z-index:10;}
-    header button {margin-right:10px; padding:5px 10px; background:#333; color:white; border:none; cursor:pointer;}
-    .toggle-btn.active {background: #555; border: 1px solid #888;}
+    header button {margin-right:10px;}
+    body > canvas {margin-top:50px;}
   </style>
 </head>
 <body>
 <header>
   <button id="addElement">Add Element</button>
-  <button id="addLED">Add LED</button>
-  <button id="addSwitch">Add Switch</button>
-  <button id="selectMode" class="toggle-btn">SELECT</button>
-  <button id="connectMode" class="toggle-btn active">CONNECT</button>
-  <button id="exportJSON">Export JSON</button>
 </header>
 <canvas id="c"></canvas>
 <script>
-// Configuration constants
-const CONFIG = {
-  steps: 16,
-  connectorRadius: 20,
-  lineWidth: 24,
-  elementRadius: 64,
-  shootLength: 100,
-  gridSpacing: 40,
-  tolerance: 15,
-  zoomFactor: 0.1,
-  minScale: 0.2,
-  maxScale: 3
-};
-
-// App state
-const state = {
-  elements: [],
-  connections: [],
-  drawing: {active: false, startEl: null, startType: null},
-  dragging: {element: null, background: false, offsetX: 0, offsetY: 0},
-  transform: {scale: 1, offset: {x:0, y:0}},
-  mouse: {pos: null, dragStart: {x:0, y:0}, offsetStart: {x:0, y:0}},
-  mode: 'connect', // 'connect' or 'select'
-  selectedElements: new Set()
-};
-
-// Canvas setup
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
-function resizeCanvas() {
+function resizeCanvas(){
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight - 50;
 }
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
 
-// Coordinate transformation utilities
-const transform = {
-  screenToWorld: (x, y) => ({
-    x: (x - state.transform.offset.x) / state.transform.scale, 
-    y: (y - state.transform.offset.y) / state.transform.scale
-  }),
-  worldToScreen: (x, y) => ({
-    x: x * state.transform.scale + state.transform.offset.x, 
-    y: y * state.transform.scale + state.transform.offset.y
-  })
-};
+const steps = 16;
+const connectorRadius = 20;
+const lineWidth = 24;
+let elements = [
+  {x:200, y:200, rotation:0},
+  {x:400, y:200, rotation:0}
+];
 
-// Geometry utilities
-const geometry = {
-  distance: (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y),
-  
-  isPointInCircle: (point, center, radius) => 
-    geometry.distance(point, center) <= radius,
-  
-  getConnectorPos: (el, type) => {
-    const r = CONFIG.elementRadius - CONFIG.connectorRadius;
-    const angle = (el.rotation / CONFIG.steps) * 2 * Math.PI;
-    const multiplier = type === 'output' ? 1 : -1;
-    return {
-      x: el.x + multiplier * r * Math.cos(angle), 
-      y: el.y + multiplier * r * Math.sin(angle)
-    };
-  },
-  
-  getBezierPoint: (t, start, cp1, cp2, end) => ({
-    x: (1-t)**3 * start.x + 3*(1-t)**2*t * cp1.x + 3*(1-t)*t**2 * cp2.x + t**3 * end.x,
-    y: (1-t)**3 * start.y + 3*(1-t)**2*t * cp1.y + 3*(1-t)*t**2 * cp2.y + t**3 * end.y
-  }),
-  
-  isPointOnBezier: (point, start, cp1, cp2, end) => {
-    for (let t = 0; t <= 1; t += 0.05) {
-      const bezierPoint = geometry.getBezierPoint(t, start, cp1, cp2, end);
-      if (geometry.distance(point, bezierPoint) <= CONFIG.tolerance) return true;
-    }
-    return false;
-  }
-};
+let connections = [];
+let drawingLine = false;
+let lineStartEl = null;
+let lineStartType = null;
+let draggingEl = null;
+let offsetX = 0;
+let offsetY = 0;
+canvas.mousePos = null;
 
-// Logic simulation functions
-const logic = {
-  // Update the state of all elements based on connections
-  update: () => {
-    // Reset all element values
-    state.elements.forEach(el => {
-      if (el.type === 'LED' || el.type === 'Gate') {
-        el.value = false;
-        el.inputs = [];
-      }
-    });
-    
-    // Set switch values
-    state.elements.forEach(el => {
-      if (el.type === 'Switch') {
-        el.value = el.state || false;
-      }
-    });
-    
-    // Propagate signals through connections
-    let changed = true;
-    while (changed) {
-      changed = false;
-      
-      state.connections.forEach(conn => {
-        const fromEl = conn.startEl;
-        const toEl = conn.endEl;
-        
-        if (fromEl.value && !toEl.value) {
-          toEl.value = true;
-          changed = true;
-        }
-      });
-    }
-  },
-  
-  // Get color based on logic state
-  getColor: (value, type) => {
-    if (value) {
-      if (type === 'LED') return 'rgba(255, 215, 0, 0.9)'; // Gold when lit
-      return 'rgba(0, 255, 0, 0.8)'; // Green for active signal
-    } else {
-      if (type === 'LED') return 'rgba(255, 165, 0, 0.6)'; // Orange when off
-      return 'rgba(255, 0, 0, 0.8)'; // Red for inactive signal
-    }
-  }
-};
-
-// Connection utilities
-const connections = {
-  exists: (aEl, aType, bEl, bType) => 
-    state.connections.some(c =>
-      (c.startEl===aEl && c.startType===aType && c.endEl===bEl && c.endType===bType) ||
-      (c.startEl===bEl && c.startType===bType && c.endEl===aEl && c.endType===aType)
-    ),
-  
-  add: (startEl, startType, endEl, endType) => {
-    if (!connections.exists(startEl, startType, endEl, endType)) {
-      state.connections.push({startEl, startType, endEl, endType});
-      logic.update();
-    }
-  },
-  
-  getUnderMouse: (worldPos) => {
-    for (const c of state.connections) {
-      const start = geometry.getConnectorPos(c.startEl, c.startType);
-      const end = geometry.getConnectorPos(c.endEl, c.endType);
-      const {cp1, cp2} = connections.getControlPoints(c, start, end);
-      
-      if (geometry.isPointOnBezier(worldPos, start, cp1, cp2, end)) return c;
-    }
-    return null;
-  },
-  
-  getControlPoints: (connection, start, end) => {
-    const startDir = {x: start.x - connection.startEl.x, y: start.y - connection.startEl.y};
-    const endDir = {x: end.x - connection.endEl.x, y: end.y - connection.endEl.y};
-    const startLen = Math.hypot(startDir.x, startDir.y);
-    const endLen = Math.hypot(endDir.x, endDir.y);
-    
-    const startShoot = connection.startShootLength || CONFIG.shootLength;
-    const endShoot = connection.endShootLength || CONFIG.shootLength;
-    
-    return {
-      cp1: {x: start.x + startDir.x/startLen*startShoot, y: start.y + startDir.y/startLen*startShoot},
-      cp2: {x: end.x + endDir.x/endLen*endShoot, y: end.y + endDir.y/endLen*endShoot}
-    };
-  }
-};
-
-// Drawing functions
-const drawing = {
-  background: () => {
-    ctx.fillStyle = "#222";
-    const {scale, offset} = state.transform;
-    
-    // Calculate visible world bounds
-    const worldLeft = -offset.x / scale;
-    const worldTop = -offset.y / scale;
-    const worldRight = worldLeft + canvas.width / scale;
-    const worldBottom = worldTop + canvas.height / scale;
-    
-    // Find the grid bounds that cover the visible area
-    const gridLeft = Math.floor(worldLeft / CONFIG.gridSpacing) * CONFIG.gridSpacing;
-    const gridTop = Math.floor(worldTop / CONFIG.gridSpacing) * CONFIG.gridSpacing;
-    
-    // Draw grid dots
-    for(let x = gridLeft; x <= worldRight; x += CONFIG.gridSpacing) {
-      for(let y = gridTop; y <= worldBottom; y += CONFIG.gridSpacing) {
-        ctx.beginPath();
-        ctx.arc(x, y, 1.5 / scale, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  },
-  
-  crescent: (elX, elY, angle, outerR, color, clipR) => {
-    const cx = elX + Math.cos(angle)*(CONFIG.elementRadius-CONFIG.connectorRadius);
-    const cy = elY + Math.sin(angle)*(CONFIG.elementRadius-CONFIG.connectorRadius);
-    ctx.save();
-    if(!state.drawing.active){
-      ctx.beginPath();
-      ctx.arc(elX, elY, clipR, 0, Math.PI*2);
-      ctx.clip();
-    }
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(cx, cy, outerR, 0, Math.PI*2);
-    ctx.fill();
-    ctx.restore();
-  },
-  
-  connections: () => {
-    state.connections.forEach(c => {
-      const start = geometry.getConnectorPos(c.startEl, c.startType);
-      const end = geometry.getConnectorPos(c.endEl, c.endType);
-      const {cp1, cp2} = connections.getControlPoints(c, start, end);
-
-      // Use logic color based on signal state
-      ctx.strokeStyle = logic.getColor(c.startEl.value, c.startEl.type);
-      ctx.lineWidth = CONFIG.lineWidth;
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
-      ctx.stroke();
-    });
-  },
-  
-  elements: () => {
-    state.elements.forEach(el => {
-      const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
-      
-      // Draw selection highlight
-      if (state.selectedElements.has(el)) {
-        ctx.strokeStyle = '#58a6ff';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(el.x, el.y, radius + 5, 0, Math.PI*2);
-        ctx.stroke();
-      }
-      
-      // Main circle with different colors based on type and state
-      if (el.type === 'LED') {
-        ctx.fillStyle = el.value ? 'rgba(30, 200, 30, 0.35)' : 'rgba(200, 30, 30, 0.35)';
-      } else if (el.type === 'Switch') {
-        ctx.fillStyle = el.value ? 'rgba(30, 200, 30, 0.35)' : 'rgba(200, 30, 30, 0.35)';
-      } else {
-        ctx.fillStyle = 'rgba(30,150,200,0.35)';
-      }
-      
-      ctx.beginPath();
-      ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
-      ctx.fill();
-      
-      // Draw label
-      ctx.fillStyle = 'white';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(el.type || 'Gate', el.x, el.y);
-      
-      // Connectors with logic colors
-      const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
-      const inputColor = logic.getColor(el.value, el.type);
-      const outputColor = el.type === 'Switch' ? 
-        logic.getColor(el.value, el.type) : 
-        logic.getColor(false, 'Gate');
-      
-      drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, outputColor, radius);
-      drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, inputColor, radius);
-    });
-  },
-  
-  currentLine: () => {
-    if (!state.drawing.active || !state.mouse.pos) return;
-    
-    const start = geometry.getConnectorPos(state.drawing.startEl, state.drawing.startType);
-    const mouseWorld = transform.screenToWorld(state.mouse.pos.x, state.mouse.pos.y);
-    const startDir = {x: start.x - state.drawing.startEl.x, y: start.y - state.drawing.startEl.y};
-    const startLen = Math.hypot(startDir.x, startDir.y);
-    const cp1 = {x: start.x + startDir.x/startLen*CONFIG.shootLength, y: start.y + startDir.y/startLen*CONFIG.shootLength};
-    const dx = mouseWorld.x - start.x, dy = mouseWorld.y - start.y;
-    const cp2 = {x: start.x + dx/2, y: start.y + dy/2};
-
-    ctx.strokeStyle = 'rgba(128,128,128,0.8)';
-    ctx.lineWidth = CONFIG.lineWidth;
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, mouseWorld.x, mouseWorld.y);
-    ctx.stroke();
-  }
-};
-
-function draw() {
-  const {scale, offset} = state.transform;
-  ctx.setTransform(scale, 0, 0, scale, offset.x, offset.y);
-  ctx.clearRect(-offset.x/scale, -offset.y/scale, canvas.width/scale, canvas.height/scale);
-  
-  drawing.background();
-  drawing.connections();
-  drawing.elements();
-  drawing.currentLine();
+function getConnectorPos(el, type){
+  const r = 64 - connectorRadius; 
+  const angle = (el.rotation / steps) * 2 * Math.PI;
+  return type==='yellow'
+    ? {x: el.x + r*Math.cos(angle), y: el.y + r*Math.sin(angle)}
+    : {x: el.x - r*Math.cos(angle), y: el.y - r*Math.sin(angle)};
 }
 
-// Input handling
-const input = {
-  getMousePos: (e) => {
-    const rect = canvas.getBoundingClientRect();
-    return {x: e.clientX - rect.left, y: e.clientY - rect.top};
-  },
-  
-  getElementUnderMouse: (worldPos) => {
-    const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
-    return state.elements.find(el => geometry.isPointInCircle(worldPos, el, radius));
-  },
-  
-  getConnectorUnderMouse: (worldPos) => {
-    for (const el of state.elements) {
-      const output = geometry.getConnectorPos(el, 'output');
-      const input = geometry.getConnectorPos(el, 'input');
-      if (geometry.isPointInCircle(worldPos, output, CONFIG.connectorRadius)) return {el, type: 'output'};
-      if (geometry.isPointInCircle(worldPos, input, CONFIG.connectorRadius)) return {el, type: 'input'};
+function connectionExists(aEl, aType, bEl, bType){
+  return connections.some(c =>
+    (c.startEl===aEl && c.startType===aType && c.endEl===bEl && c.endType===bType) ||
+    (c.startEl===bEl && c.startType===bType && c.endEl===aEl && c.endType===aType)
+  );
+}
+
+function drawCrescent(elX, elY, angle, outerR, color, clipR){
+  const cx = elX + Math.cos(angle)*(64-connectorRadius);
+  const cy = elY + Math.sin(angle)*(64-connectorRadius);
+  ctx.save();
+  if(!drawingLine){
+    ctx.beginPath();
+    ctx.arc(elX, elY, clipR, 0, Math.PI*2);
+    ctx.clip();
+  }
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const shootLength = 240;
+
+  connections.forEach(c=>{
+    const start = getConnectorPos(c.startEl, c.startType);
+    const end = getConnectorPos(c.endEl, c.endType);
+    const startDir = {x: start.x - c.startEl.x, y: start.y - c.startEl.y};
+    const endDir = {x: end.x - c.endEl.x, y: end.y - c.endEl.y};
+    const startLen = Math.hypot(startDir.x, startDir.y);
+    const endLen = Math.hypot(endDir.x, endDir.y);
+    const cp1 = {x: start.x + startDir.x/startLen*shootLength, y: start.y + startDir.y/startLen*shootLength};
+    const cp2 = {x: end.x + endDir.x/endLen*shootLength, y: end.y + endDir.y/endLen*shootLength};
+
+    ctx.strokeStyle='gray';
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+    ctx.stroke();
+  });
+
+  elements.forEach(el=>{
+    ctx.fillStyle='rgba(30,150,200,0.35)';
+    ctx.beginPath(); ctx.arc(el.x,el.y,64-connectorRadius,0,Math.PI*2); ctx.fill();
+    drawCrescent(el.x, el.y, el.rotation/steps*2*Math.PI, connectorRadius, 'yellow', 64-connectorRadius);
+    drawCrescent(el.x, el.y, Math.PI + el.rotation/steps*2*Math.PI, connectorRadius, 'green', 64-connectorRadius);
+  });
+
+  if(drawingLine && canvas.mousePos){
+    const start = getConnectorPos(lineStartEl, lineStartType);
+    const pos = canvas.mousePos;
+    const startDir = {x: start.x - lineStartEl.x, y: start.y - lineStartEl.y};
+    const startLen = Math.hypot(startDir.x, startDir.y);
+    const cp1 = {x: start.x + startDir.x/startLen*shootLength, y: start.y + startDir.y/startLen*shootLength};
+    const dx = pos.x - start.x, dy = pos.y - start.y;
+    const cp2 = {x: start.x + dx/2, y: start.y + dy/2};
+
+    ctx.strokeStyle='gray';
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(start.x,start.y);
+    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, pos.x,pos.y);
+    ctx.stroke();
+  }
+}
+
+// mouse events
+canvas.addEventListener('mousemove', e=>{
+  const rect = canvas.getBoundingClientRect();
+  const pos = {x: e.clientX - rect.left, y: e.clientY - rect.top};
+  canvas.mousePos = pos;
+
+  let overCircle = false;
+  for(const el of elements){
+    const yellow = getConnectorPos(el,'yellow');
+    const green = getConnectorPos(el,'green');
+    if((pos.x-yellow.x)**2 + (pos.y-yellow.y)**2 <= connectorRadius**2 || (pos.x-green.x)**2 + (pos.y-green.y)**2 <= connectorRadius**2){
+      overCircle = true; break;
     }
-    return null;
-  },
-  
-  getCursor: (worldPos) => {
-    if (state.mode === 'connect') {
-      const connector = input.getConnectorUnderMouse(worldPos);
-      if (connector) return 'pointer';
-    }
-    
-    const element = input.getElementUnderMouse(worldPos);
-    if (element) return state.mode === 'select' ? 'default' : 'move';
-    
-    const connection = connections.getUnderMouse(worldPos);
-    if (connection) return 'ew-resize';
-    
-    if (state.dragging.element) return 'grabbing';
-    if (state.dragging.background) return 'grabbing';
-    
-    return 'default';
-  }
-};
-
-// Event handlers
-canvas.addEventListener('mousemove', e => {
-  const pos = input.getMousePos(e);
-  state.mouse.pos = pos;
-  const worldPos = transform.screenToWorld(pos.x, pos.y);
-
-  if (state.dragging.background) {
-    state.transform.offset.x = state.mouse.offsetStart.x + (pos.x - state.mouse.dragStart.x);
-    state.transform.offset.y = state.mouse.offsetStart.y + (pos.y - state.mouse.dragStart.y);
-    draw();
-    return;
   }
 
-  if (state.dragging.element) {
-    state.dragging.element.x = worldPos.x - state.dragging.offsetX;
-    state.dragging.element.y = worldPos.y - state.dragging.offsetY;
-    logic.update();
+  if(!overCircle && draggingEl){
+    draggingEl.x = pos.x - offsetX;
+    draggingEl.y = pos.y - offsetY;
   }
 
-  canvas.style.cursor = input.getCursor(worldPos);
+  canvas.style.cursor = overCircle ? 'pointer' : (draggingEl ? 'grabbing' : 'default');
   draw();
 });
 
-canvas.addEventListener('mousedown', e => {
-  const pos = input.getMousePos(e);
-  const worldPos = transform.screenToWorld(pos.x, pos.y);
+canvas.addEventListener('mousedown', e=>{
+  const rect = canvas.getBoundingClientRect();
+  const pos = {x: e.clientX - rect.left, y: e.clientY - rect.top};
 
-  // Check if we're in connect mode and clicking on a connector
-  if (state.mode === 'connect') {
-    const connector = input.getConnectorUnderMouse(worldPos);
-    if (connector && connector.type === 'output') {
-      state.drawing.active = true;
-      state.drawing.startEl = connector.el;
-      state.drawing.startType = connector.type;
+  for(const el of elements){
+    const yellow = getConnectorPos(el,'yellow');
+    const green = getConnectorPos(el,'green');
+    if((pos.x-yellow.x)**2 + (pos.y-yellow.y)**2 <= connectorRadius**2){
+      drawingLine = true; lineStartEl = el; lineStartType = 'yellow'; return;
+    }
+    if((pos.x-green.x)**2 + (pos.y-green.y)**2 <= connectorRadius**2){
+      drawingLine = true; lineStartEl = el; lineStartType = 'green'; return;
+    }
+  }
+
+  for(const el of elements){
+    const dx = pos.x - el.x, dy = pos.y - el.y;
+    if(dx*dx + dy*dy <= (64-connectorRadius)**2){
+      draggingEl = el;
+      offsetX = dx;
+      offsetY = dy;
       return;
     }
   }
+});
 
-  // Check elements
-  const element = input.getElementUnderMouse(worldPos);
-  if (element) {
-    if (state.mode === 'select') {
-      // Toggle selection with Ctrl key
-      if (e.ctrlKey) {
-        if (state.selectedElements.has(element)) {
-          state.selectedElements.delete(element);
-        } else {
-          state.selectedElements.add(element);
+canvas.addEventListener('mouseup', e=>{
+  const rect = canvas.getBoundingClientRect();
+  const pos = {x: e.clientX - rect.left, y: e.clientY - rect.top};
+
+  if(drawingLine){
+    for(const el of elements){
+      if(el === lineStartEl) continue;
+      const connectors = [{type:'yellow', pos:getConnectorPos(el,'yellow')},{type:'green', pos:getConnectorPos(el,'green')}];
+      for(const c of connectors){
+        if((pos.x-c.pos.x)**2 + (pos.y-c.pos.y)**2 <= connectorRadius**2){
+          if(!connectionExists(lineStartEl, lineStartType, el, c.type)){
+            connections.push({startEl:lineStartEl,startType:lineStartType,endEl:el,endType:c.type});
+          }
+          break;
         }
-      } else {
-        // Single selection
-        state.selectedElements.clear();
-        state.selectedElements.add(element);
-      }
-      draw();
-    } else {
-      // Start dragging
-      state.dragging.element = element;
-      state.dragging.offsetX = worldPos.x - element.x;
-      state.dragging.offsetY = worldPos.y - element.y;
-      
-      // Toggle switch state on click
-      if (element.type === 'Switch' && !state.dragging.background) {
-        element.state = !element.state;
-        element.value = element.state;
-        logic.update();
       }
     }
-    return;
   }
 
-  // Background drag
-  state.dragging.background = true;
-  state.mouse.dragStart = pos;
-  state.mouse.offsetStart = {...state.transform.offset};
+  drawingLine = false; lineStartEl = null; lineStartType = null;
+  draggingEl = null;
+  canvas.mousePos = null;
+  draw();
 });
 
-canvas.addEventListener('mouseup', e => {
-  if (state.dragging.background) {
-    state.dragging.background = false;
-  }
+canvas.addEventListener('mouseleave', ()=>{drawingLine = false; lineStartEl=null; lineStartType=null; draggingEl=null; canvas.mousePos=null; draw();});
 
-  if (state.drawing.active) {
-    const pos = input.getMousePos(e);
-    const worldPos = transform.screenToWorld(pos.x, pos.y);
-    const connector = input.getConnectorUnderMouse(worldPos);
-    
-    if (connector && connector.type === 'input' && 
-        (state.drawing.startEl !== connector.el || state.drawing.startType !== connector.type)) {
-      connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
+canvas.addEventListener('wheel', e=>{
+  const rect = canvas.getBoundingClientRect();
+  const pos = {x: e.clientX - rect.left, y: e.clientY - rect.top};
+  for(const el of elements){
+    const dx = pos.x - el.x, dy = pos.y - el.y;
+    if(dx*dx + dy*dy <= (64-connectorRadius)**2){
+      el.rotation += (e.deltaY>0?1:-1);
+      if(el.rotation<0) el.rotation += steps;
+      if(el.rotation>=steps) el.rotation -= steps;
+      break;
     }
   }
-
-  // Reset all interaction states
-  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
-  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0});
-  state.mouse.pos = null;
   draw();
 });
 
-canvas.addEventListener('mouseleave', () => {
-  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
-  Object.assign(state.dragging, {element: null, background: false});
-  state.mouse.pos = null;
+// add element button
+document.getElementById('addElement').addEventListener('click', ()=>{
+  elements.push({x:100+Math.random()*400, y:100+Math.random()*300, rotation:0});
   draw();
 });
 
-canvas.addEventListener('wheel', e => {
-  const pos = input.getMousePos(e);
-  const worldPos = transform.screenToWorld(pos.x, pos.y);
-  
-  // Element rotation
-  const element = input.getElementUnderMouse(worldPos);
-  if (element) {
-    element.rotation += e.deltaY > 0 ? 1 : -1;
-    if (element.rotation < 0) element.rotation += CONFIG.steps;
-    if (element.rotation >= CONFIG.steps) element.rotation -= CONFIG.steps;
-    logic.update();
-  }
-  // Bezier curve adjustment
-  else {
-    const connection = connections.getUnderMouse(worldPos);
-    if (connection) {
-      const delta = e.deltaY > 0 ? -20 : 20;
-      connection.startShootLength = Math.max(20, Math.min(500, (connection.startShootLength || CONFIG.shootLength) + delta));
-      connection.endShootLength = Math.max(20, Math.min(500, (connection.endShootLength || CONFIG.shootLength) + delta));
-    }
-    // Zoom
-    else {
-      const factor = e.deltaY > 0 ? (1 - CONFIG.zoomFactor) : (1 + CONFIG.zoomFactor);
-      const worldBefore = worldPos;
-      
-      state.transform.scale = Math.max(CONFIG.minScale, Math.min(CONFIG.maxScale, state.transform.scale * factor));
-      
-      const worldAfter = transform.screenToWorld(pos.x, pos.y);
-      state.transform.offset.x += (worldAfter.x - worldBefore.x) * state.transform.scale;
-      state.transform.offset.y += (worldAfter.y - worldBefore.y) * state.transform.scale;
-    }
-  }
-
-  draw();
-  e.preventDefault();
-});
-
-// UI handlers
-document.getElementById('addElement').addEventListener('click', () => {
-  state.elements.push({
-    x: 100 + Math.random() * 400, 
-    y: 100 + Math.random() * 300, 
-    rotation: 0,
-    type: 'Gate',
-    value: false
-  });
-  draw();
-});
-
-document.getElementById('addLED').addEventListener('click', () => {
-  state.elements.push({
-    x: 100 + Math.random() * 400,
-    y: 100 + Math.random() * 300,
-    rotation: 0,
-    type: 'LED',
-    value: false
-  });
-  draw();
-});
-
-document.getElementById('addSwitch').addEventListener('click', () => {
-  state.elements.push({
-    x: 100 + Math.random() * 400,
-    y: 100 + Math.random() * 300,
-    rotation: 0,
-    type: 'Switch',
-    value: false,
-    state: false
-  });
-  draw();
-});
-
-// Mode switching
-document.getElementById('selectMode').addEventListener('click', () => {
-  state.mode = 'select';
-  document.getElementById('selectMode').classList.add('active');
-  document.getElementById('connectMode').classList.remove('active');
-});
-
-document.getElementById('connectMode').addEventListener('click', () => {
-  state.mode = 'connect';
-  document.getElementById('connectMode').classList.add('active');
-  document.getElementById('selectMode').classList.remove('active');
-});
-
-document.getElementById('exportJSON').addEventListener('click', () => {
-  const data = {
-    elements: state.elements.map(el => ({
-      x: el.x, 
-      y: el.y, 
-      rotation: el.rotation,
-      type: el.type,
-      value: el.value,
-      state: el.state
-    })),
-    connections: state.connections.map(c => ({
-      startIndex: state.elements.indexOf(c.startEl), 
-      startType: c.startType, 
-      endIndex: state.elements.indexOf(c.endEl), 
-      endType: c.endType,
-      startShootLength: c.startShootLength,
-      endShootLength: c.endShootLength
-    }))
-  };
-  
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement('a'), {
-    href: url,
-    download: 'layout.json'
-  });
-  a.click();
-  URL.revokeObjectURL(url);
-});
-
-// Initialize
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
 draw();
 </script>
 </body>
