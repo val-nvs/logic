@@ -28,7 +28,7 @@ const CONFIG = {
   connectorRadius: 20,
   lineWidth: 24,
   elementRadius: 64,
-  junctionRadius: 16,
+  junctionInnerRatio: 0.4, // Inner circle is 40% of full radius
   shootLength: 100,
   gridSpacing: 40,
   tolerance: 15,
@@ -63,7 +63,7 @@ const ELEMENT_TYPES = {
     hasInput: false,
     isJunction: true,
     color: 'rgba(200,200,200,0.5)',
-    label: ''
+    label: 'JUNCTION'
   }
 };
 
@@ -270,16 +270,30 @@ const drawing = {
   elements: () => {
     state.elements.forEach(el => {
       const typeConfig = ELEMENT_TYPES[el.type];
+      const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
       
       if (el.type === 'JUNCTION') {
-        // Draw junction
+        // Draw junction same size as other elements
         ctx.fillStyle = typeConfig.color;
         ctx.beginPath();
-        ctx.arc(el.x, el.y, CONFIG.junctionRadius, 0, Math.PI*2);
+        ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
         ctx.fill();
-      } else {
-        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
         
+        // Draw inner circle
+        ctx.fillStyle = 'rgba(100,100,100,0.6)';
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, radius * CONFIG.junctionInnerRatio, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Draw label
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = `${12/state.transform.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(typeConfig.label, el.x, el.y);
+        ctx.restore();
+      } else {
         // Main circle with type-specific color
         ctx.fillStyle = typeConfig.color;
         ctx.beginPath();
@@ -310,11 +324,22 @@ const drawing = {
   currentLine: () => {
     if (!state.drawing.active || !state.mouse.pos) return;
     
-    const start = geometry.getConnectorPos(state.drawing.startEl, state.drawing.startType);
+    const start = state.drawing.startType === 'junction' ? 
+      {x: state.drawing.startEl.x, y: state.drawing.startEl.y} :
+      geometry.getConnectorPos(state.drawing.startEl, state.drawing.startType);
     const mouseWorld = transform.screenToWorld(state.mouse.pos.x, state.mouse.pos.y);
-    const startDir = {x: start.x - state.drawing.startEl.x, y: start.y - state.drawing.startEl.y};
+    
+    let startDir;
+    if (state.drawing.startEl.type === 'JUNCTION') {
+      // For junctions, use the direction from center to mouse
+      startDir = {x: mouseWorld.x - start.x, y: mouseWorld.y - start.y};
+    } else {
+      startDir = {x: start.x - state.drawing.startEl.x, y: start.y - state.drawing.startEl.y};
+    }
+    
     const startLen = Math.hypot(startDir.x, startDir.y);
-    const cp1 = {x: start.x + startDir.x/startLen*CONFIG.shootLength, y: start.y + startDir.y/startLen*CONFIG.shootLength};
+    const cp1 = {x: start.x + (startLen > 0 ? startDir.x/startLen*CONFIG.shootLength : 0), 
+                 y: start.y + (startLen > 0 ? startDir.y/startLen*CONFIG.shootLength : 0)};
     const dx = mouseWorld.x - start.x, dy = mouseWorld.y - start.y;
     const cp2 = {x: start.x + dx/2, y: start.y + dy/2};
 
@@ -346,19 +371,49 @@ const input = {
     return {x: e.clientX - rect.left, y: e.clientY - rect.top};
   },
   
-  getElementUnderMouse: (worldPos) => {
+  getElementUnderMouse: (worldPos, forDragging = false) => {
     for (const el of state.elements) {
-      const radius = el.type === 'JUNCTION' ? 
-        CONFIG.junctionRadius : 
-        CONFIG.elementRadius - CONFIG.connectorRadius;
-      if (geometry.isPointInCircle(worldPos, el, radius)) {
-        return el;
+      // For junctions when checking for dragging, only check inner circle
+      if (el.type === 'JUNCTION' && forDragging) {
+        const innerRadius = (CONFIG.elementRadius - CONFIG.connectorRadius) * CONFIG.junctionInnerRatio;
+        if (geometry.isPointInCircle(worldPos, el, innerRadius)) {
+          return el;
+        }
+      } else if (el.type !== 'JUNCTION') {
+        // For non-junctions, check normal radius
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          return el;
+        }
+      }
+    }
+    return null;
+  },
+  
+  getJunctionRing: (worldPos) => {
+    // Check if mouse is on junction outer ring (between inner and outer circles)
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const outerRadius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        const innerRadius = outerRadius * CONFIG.junctionInnerRatio;
+        const distance = geometry.distance(worldPos, el);
+        
+        if (distance <= outerRadius && distance > innerRadius) {
+          return el;
+        }
       }
     }
     return null;
   },
   
   getConnectorUnderMouse: (worldPos) => {
+    // First check for junction rings
+    const junctionRing = input.getJunctionRing(worldPos);
+    if (junctionRing) {
+      return {el: junctionRing, type: 'junction'};
+    }
+    
+    // Then check regular connectors
     for (const el of state.elements) {
       const typeConfig = ELEMENT_TYPES[el.type];
       
@@ -383,7 +438,7 @@ const input = {
     const connector = input.getConnectorUnderMouse(worldPos);
     if (connector) return 'pointer';
     
-    const element = input.getElementUnderMouse(worldPos);
+    const element = input.getElementUnderMouse(worldPos, true);
     if (element) return 'default';
     
     const connection = connections.getUnderMouse(worldPos);
@@ -437,8 +492,21 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   
-  // Handle double click on elements
-  const element = input.getElementUnderMouse(worldPos);
+  // Handle double click on elements (check full junction area for deletion)
+  let element = input.getElementUnderMouse(worldPos, false);
+  if (!element) {
+    // Check if it's a junction (full area for deletion)
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          element = el;
+          break;
+        }
+      }
+    }
+  }
+  
   if (element && isDoubleClick && state.lastClick.target === element) {
     connections.removeByElement(element);
     const index = state.elements.indexOf(element);
@@ -453,7 +521,7 @@ canvas.addEventListener('mousedown', e => {
   state.lastClick.time = currentTime;
   state.lastClick.target = element;
   
-  // Check connectors first (for dragging connections)
+  // Check connectors first (including junction rings for dragging connections)
   const connector = input.getConnectorUnderMouse(worldPos);
   if (connector) {
     state.drawing.active = true;
@@ -462,7 +530,8 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   
-  // Setup element dragging
+  // Setup element dragging (only inner circle for junctions)
+  element = input.getElementUnderMouse(worldPos, true);
   if (element) {
     state.dragging.element = element;
     state.dragging.offsetX = worldPos.x - element.x;
@@ -486,11 +555,25 @@ canvas.addEventListener('mouseup', e => {
 
   if (state.drawing.active) {
     const connector = input.getConnectorUnderMouse(worldPos);
-    const targetElement = input.getElementUnderMouse(worldPos);
+    const targetElement = input.getElementUnderMouse(worldPos, false);
+    
+    // Check if target is a junction (full area)
+    let junctionTarget = null;
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          junctionTarget = el;
+          break;
+        }
+      }
+    }
     
     // Allow connections to connectors or junctions
     if (connector) {
       connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
+    } else if (junctionTarget) {
+      connections.add(state.drawing.startEl, state.drawing.startType, junctionTarget, 'junction');
     } else if (targetElement && targetElement.type === 'JUNCTION') {
       connections.add(state.drawing.startEl, state.drawing.startType, targetElement, 'junction');
     }
@@ -515,7 +598,7 @@ canvas.addEventListener('wheel', e => {
   const worldPos = transform.screenToWorld(pos.x, pos.y);
   
   // Element rotation (not for junctions)
-  const element = input.getElementUnderMouse(worldPos);
+  const element = input.getElementUnderMouse(worldPos, false);
   if (element && element.type !== 'JUNCTION') {
     element.rotation += e.deltaY > 0 ? 1 : -1;
     if (element.rotation < 0) element.rotation += CONFIG.steps;
