@@ -44,40 +44,34 @@ const ELEMENT_TYPES = {
     hasOutput: true,
     hasInput: true,
     color: 'rgba(30,150,200,0.35)',
-    label: 'NOT/NOR',
-    logicType: 'not'
+    label: 'NOT/NOR'
   },
   'LED': {
     hasOutput: false,
     hasInput: true,
     color: 'rgba(255,100,100,0.35)',
-    activeColor: 'rgba(255,191,36,0.8)',
-    label: 'LED',
-    logicType: 'led'
+    label: 'LED'
   },
   'SWITCH': {
     hasOutput: true,
     hasInput: false,
     color: 'rgba(100,255,100,0.35)',
-    activeColor: 'rgba(150,255,150,0.6)',
-    label: 'SWITCH',
-    logicType: 'switch'
+    label: 'SWITCH'
   },
   'JUNCTION': {
     hasOutput: false,
     hasInput: false,
     isJunction: true,
     color: 'rgba(200,200,200,0.5)',
-    label: '',
-    logicType: 'junction'
+    label: ''
   }
 };
 
 // App state
 const state = {
   elements: [
-    {x:200, y:200, rotation:0, type:'not/nor', value: false, inputConnections: [], outputConnections: []}, 
-    {x:400, y:200, rotation:0, type:'not/nor', value: false, inputConnections: [], outputConnections: []}
+    {x:200, y:200, rotation:0, type:'not/nor'}, 
+    {x:400, y:200, rotation:0, type:'not/nor'}
   ],
   connections: [],
   drawing: {active: false, startEl: null, startType: null},
@@ -139,53 +133,6 @@ const geometry = {
   }
 };
 
-// Logic simulation
-const logic = {
-  updateElement: (element) => {
-    const typeConfig = ELEMENT_TYPES[element.type];
-    
-    if (!element.inputConnections) element.inputConnections = [];
-    if (!element.outputConnections) element.outputConnections = [];
-    
-    switch (typeConfig.logicType) {
-      case 'not':
-        // NOT/NOR gate: output is true if no inputs are true
-        if (element.inputConnections.length === 0) {
-          element.value = true; // Default to true when no inputs
-        } else {
-          element.value = !element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-        }
-        break;
-        
-      case 'led':
-        // LED: lights up if any input is true
-        element.value = element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-        break;
-        
-      case 'switch':
-        // Switch: retains its manually set value
-        if (element.value === undefined) element.value = false;
-        break;
-        
-      case 'junction':
-        // Junction: passes through any true signal
-        element.value = element.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-        break;
-    }
-  },
-  
-  getSignalValue: (element) => {
-    return element.value || false;
-  },
-  
-  updateAll: () => {
-    // Update all elements
-    state.elements.forEach(element => {
-      logic.updateElement(element);
-    });
-  }
-};
-
 // Connection utilities
 const connections = {
   exists: (aEl, aType, bEl, bType) => 
@@ -201,13 +148,6 @@ const connections = {
     if (!connections.exists(startEl, startType, endEl, endType)) {
       const conn = {startEl, startType, endEl, endType};
       state.connections.push(conn);
-      
-      // Add to connection arrays for logic simulation
-      if (!startEl.outputConnections) startEl.outputConnections = [];
-      if (!endEl.inputConnections) endEl.inputConnections = [];
-      
-      startEl.outputConnections.push(conn);
-      endEl.inputConnections.push(conn);
     }
   },
   
@@ -215,17 +155,6 @@ const connections = {
     const index = state.connections.indexOf(connection);
     if (index > -1) {
       state.connections.splice(index, 1);
-      
-      // Remove from connection arrays
-      if (connection.startEl.outputConnections) {
-        const outIdx = connection.startEl.outputConnections.indexOf(connection);
-        if (outIdx > -1) connection.startEl.outputConnections.splice(outIdx, 1);
-      }
-      
-      if (connection.endEl.inputConnections) {
-        const inIdx = connection.endEl.inputConnections.indexOf(connection);
-        if (inIdx > -1) connection.endEl.inputConnections.splice(inIdx, 1);
-      }
     }
   },
   
@@ -327,9 +256,8 @@ const drawing = {
         geometry.getConnectorPos(c.endEl, c.endType);
       const {cp1, cp2} = connections.getControlPoints(c, start, end);
 
-      // Show signal state: green for true, red for false
-      const signalActive = logic.getSignalValue(c.startEl);
-      ctx.strokeStyle = signalActive ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.6)';
+      // All connections are light gray
+      ctx.strokeStyle = 'rgba(160,160,160,0.5)';
       ctx.lineWidth = CONFIG.lineWidth;
       ctx.lineCap = 'square';
       ctx.beginPath();
@@ -344,88 +272,19 @@ const drawing = {
       const typeConfig = ELEMENT_TYPES[el.type];
       
       if (el.type === 'JUNCTION') {
-        // Draw junction with signal state color
-        const signalActive = logic.getSignalValue(el);
-        ctx.fillStyle = signalActive ? 'rgba(34,197,94,0.8)' : typeConfig.color;
+        // Draw junction
+        ctx.fillStyle = typeConfig.color;
         ctx.beginPath();
         ctx.arc(el.x, el.y, CONFIG.junctionRadius, 0, Math.PI*2);
         ctx.fill();
       } else {
         const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
         
-        // Main circle with type-specific color and signal state
-        let fillColor = typeConfig.color;
-        if (el.type === 'LED' && el.value) {
-          fillColor = typeConfig.activeColor;
-          // Add glow effect for active LED
-          ctx.save();
-          ctx.shadowColor = '#fbbf24';
-          ctx.shadowBlur = 40;
-          ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = 0;
-        } else if (el.type === 'SWITCH' && el.value) {
-          fillColor = typeConfig.activeColor;
-        }
-        
-        ctx.fillStyle = fillColor;
+        // Main circle with type-specific color
+        ctx.fillStyle = typeConfig.color;
         ctx.beginPath();
         ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
         ctx.fill();
-        
-        if (el.type === 'LED' && el.value) {
-          ctx.restore(); // Reset shadow
-        }
-        
-        // Draw signal flow stripes
-        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
-        ctx.save();
-        ctx.translate(el.x, el.y);
-        ctx.rotate(angle);
-        
-        if (el.type === 'not/nor') {
-          // Signal flow stripe showing input and inverted output
-          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-          const gradient = ctx.createLinearGradient(-radius * 0.8, 0, radius * 0.8, 0);
-          gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444'); // Input state
-          gradient.addColorStop(1, el.value ? '#22c55e' : '#ef4444'); // Output state (inverted)
-          
-          ctx.strokeStyle = gradient;
-          ctx.lineWidth = 8;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(-radius * 0.8, 0);
-          ctx.lineTo(radius * 0.8, 0);
-          ctx.stroke();
-        } else if (el.type === 'SWITCH') {
-          // Switch signal flow
-          const gradient = ctx.createLinearGradient(0, 0, radius * 0.8, 0);
-          gradient.addColorStop(0, el.value ? '#16a34a' : '#7f1d1d');
-          gradient.addColorStop(1, el.value ? '#22c55e' : '#ef4444');
-          
-          ctx.strokeStyle = gradient;
-          ctx.lineWidth = 8;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(radius * 0.8, 0);
-          ctx.stroke();
-        } else if (el.type === 'LED') {
-          // LED input signal flow
-          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-          const gradient = ctx.createLinearGradient(-radius * 0.8, 0, 0, 0);
-          gradient.addColorStop(0, hasActiveInput ? '#22c55e' : '#ef4444');
-          gradient.addColorStop(1, el.value ? '#fbbf24' : '#1a202c');
-          
-          ctx.strokeStyle = gradient;
-          ctx.lineWidth = 8;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(-radius * 0.8, 0);
-          ctx.lineTo(0, 0);
-          ctx.stroke();
-        }
-        
-        ctx.restore();
         
         // Draw type label
         ctx.save();
@@ -433,26 +292,16 @@ const drawing = {
         ctx.font = `${12/state.transform.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        let label = typeConfig.label;
-        if (el.type === 'SWITCH') {
-          label += el.value ? ' ON' : ' OFF';
-        } else if (el.type === 'LED') {
-          label += el.value ? ' ON' : ' OFF';
-        }
-        ctx.fillText(label, el.x, el.y);
+        ctx.fillText(typeConfig.label, el.x, el.y);
         ctx.restore();
         
-        // Draw connectors based on type with signal state colors
+        // Draw connectors based on type
+        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
         if (typeConfig.hasOutput) {
-          const outputColor = el.value ? 
-            'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)';
-          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, outputColor, radius);
+          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, 'rgba(100,100,100,0.4)', radius);
         }
         if (typeConfig.hasInput) {
-          const hasActiveInput = el.inputConnections && el.inputConnections.some(conn => logic.getSignalValue(conn.startEl));
-          const inputColor = hasActiveInput ? 
-            'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)';
-          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, inputColor, radius);
+          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(100,100,100,0.4)', radius);
         }
       }
     });
@@ -535,13 +384,7 @@ const input = {
     if (connector) return 'pointer';
     
     const element = input.getElementUnderMouse(worldPos);
-    if (element) {
-      if (element.type === 'SWITCH') {
-        const connector = input.getConnectorUnderMouse(worldPos);
-        if (!connector) return 'pointer';
-      }
-      return 'default';
-    }
+    if (element) return 'default';
     
     const connection = connections.getUnderMouse(worldPos);
     if (connection) return 'ew-resize';
@@ -590,7 +433,6 @@ canvas.addEventListener('mousedown', e => {
   const connection = connections.getUnderMouse(worldPos);
   if (connection && isDoubleClick) {
     connections.remove(connection);
-    logic.updateAll();
     draw();
     return;
   }
@@ -603,7 +445,6 @@ canvas.addEventListener('mousedown', e => {
     if (index > -1) {
       state.elements.splice(index, 1);
     }
-    logic.updateAll();
     draw();
     return;
   }
@@ -639,20 +480,6 @@ canvas.addEventListener('mouseup', e => {
   const pos = input.getMousePos(e);
   const worldPos = transform.screenToWorld(pos.x, pos.y);
   
-  // Check if this was a click (not a drag) on a switch
-  if (state.dragging.element && 
-      state.dragging.element.type === 'SWITCH' && 
-      state.dragging.startPos &&
-      geometry.distance(worldPos, state.dragging.startPos) < 5) {
-    // Toggle switch if it wasn't dragged
-    const connector = input.getConnectorUnderMouse(worldPos);
-    if (!connector) {
-      state.dragging.element.value = !state.dragging.element.value;
-      logic.updateAll();
-      draw();
-    }
-  }
-  
   if (state.dragging.background) {
     state.dragging.background = false;
   }
@@ -664,10 +491,8 @@ canvas.addEventListener('mouseup', e => {
     // Allow connections to connectors or junctions
     if (connector) {
       connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
-      logic.updateAll();
     } else if (targetElement && targetElement.type === 'JUNCTION') {
       connections.add(state.drawing.startEl, state.drawing.startType, targetElement, 'junction');
-      logic.updateAll();
     }
   }
 
@@ -727,14 +552,10 @@ function addElement(type) {
     x: 100 + Math.random() * 400, 
     y: 100 + Math.random() * 300, 
     rotation: 0,
-    type: type,
-    value: false,
-    inputConnections: [],
-    outputConnections: []
+    type: type
   };
   
   state.elements.push(element);
-  logic.updateAll();
   draw();
 }
 
@@ -750,10 +571,7 @@ function loadLayout(data) {
       x: el.x || 0,
       y: el.y || 0, 
       rotation: el.rotation || 0,
-      type: el.type || 'not/nor',
-      value: el.value || false,
-      inputConnections: [],
-      outputConnections: []
+      type: el.type || 'not/nor'
     }));
   }
   
@@ -780,13 +598,6 @@ function loadLayout(data) {
         }
         
         state.connections.push(connection);
-        
-        // Add to connection arrays for logic simulation
-        if (!startEl.outputConnections) startEl.outputConnections = [];
-        if (!endEl.inputConnections) endEl.inputConnections = [];
-        
-        startEl.outputConnections.push(connection);
-        endEl.inputConnections.push(connection);
       }
     });
   }
@@ -796,8 +607,6 @@ function loadLayout(data) {
   Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null});
   state.mouse.pos = null;
   
-  // Update logic and redraw
-  logic.updateAll();
   draw();
 }
 
@@ -836,8 +645,7 @@ document.getElementById('exportJSON').addEventListener('click', () => {
         x: el.x, 
         y: el.y, 
         rotation: el.rotation,
-        type: el.type,
-        value: el.value
+        type: el.type
       };
       return obj;
     }),
@@ -864,22 +672,7 @@ document.getElementById('exportJSON').addEventListener('click', () => {
 // Initialize
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
-
-// Initialize all elements with proper logic properties
-state.elements.forEach(el => {
-  if (!el.value) el.value = false;
-  if (!el.inputConnections) el.inputConnections = [];
-  if (!el.outputConnections) el.outputConnections = [];
-});
-
-// Animation loop for real-time logic simulation
-function animate() {
-  logic.updateAll();
-  draw();
-  requestAnimationFrame(animate);
-}
-
-animate();
+draw();
 </script>
 </body>
 </html>
