@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>Logic Circuit Bezier Editor</title>
   <style>
-    html, body {margin:0; padding:0; height:100%; background:black; overflow:hidden;}
+    html, body {margin:0; padding:0; height:100%; background:#25171a; overflow:hidden;}
     canvas {display:block; cursor:default; margin-top:50px;}
     header {position:fixed; top:0; left:0; right:0; height:50px; background:#111; display:flex; align-items:center; padding:0 10px; z-index:10;}
     header button {margin-right:10px; padding:5px 10px; background:#333; color:white; border:none; cursor:pointer;}
@@ -13,10 +13,11 @@
 </head>
 <body>
 <header>
-  <button id="addNotNor">Add Not/Nor</button>
-  <button id="addLED">Add LED</button>
   <button id="addSwitch">Add Switch</button>
   <button id="addJunction">Add Junction</button>
+  <button id="addDiode">Add Diode</button>
+  <button id="addNotNor">Add Not/Nor</button>
+  <button id="addLED">Add LED</button>
   <button id="loadJSON">Load JSON</button>
   <button id="exportJSON">Export JSON</button>
 </header>
@@ -28,9 +29,9 @@ const CONFIG = {
   connectorRadius: 20,
   lineWidth: 24,
   elementRadius: 64,
-  junctionInnerRatio: 0.4, // Inner circle is 40% of full radius
-  shootLength: 100,
-  gridSpacing: 40,
+  junctionInnerRadius: 24, // Inner circle is 48px diameter (24px radius)
+  shootLength: 50,
+  gridSpacing: 45,
   tolerance: 15,
   zoomFactor: 0.1,
   minScale: 0.2,
@@ -43,26 +44,33 @@ const ELEMENT_TYPES = {
   'not/nor': {
     hasOutput: true,
     hasInput: true,
-    color: 'rgba(30,150,200,0.35)',
+    color: '#6c6061',
     label: 'NOT/NOR'
   },
   'LED': {
     hasOutput: false,
     hasInput: true,
-    color: 'rgba(255,100,100,0.35)',
+    color: '#825f45',
     label: 'LED'
   },
   'SWITCH': {
     hasOutput: true,
     hasInput: false,
-    color: 'rgba(100,255,100,0.35)',
+    color: '#2f4858',
     label: 'SWITCH'
   },
   'JUNCTION': {
     hasOutput: false,
     hasInput: false,
     isJunction: true,
-    color: 'rgba(200,200,200,0.5)',
+    color: 'rgba(128,128,128,1)',
+    label: 'JUNCTION'
+  },
+  'DIODE': {
+    hasOutput: false,
+    hasInput: false,
+    isJunction: true,
+    color: 'rgba(128,0,255,1)',
     label: 'JUNCTION'
   }
 };
@@ -257,7 +265,7 @@ const drawing = {
       const {cp1, cp2} = connections.getControlPoints(c, start, end);
 
       // All connections are light gray
-      ctx.strokeStyle = 'rgba(160,160,160,0.5)';
+      ctx.strokeStyle = 'rgba(128,128,128,0.7)';
       ctx.lineWidth = CONFIG.lineWidth;
       ctx.lineCap = 'square';
       ctx.beginPath();
@@ -280,14 +288,14 @@ const drawing = {
         ctx.fill();
         
         // Draw inner circle
-        ctx.fillStyle = 'rgba(100,100,100,0.6)';
+        ctx.fillStyle = 'rgba(96,96,96,1)';
         ctx.beginPath();
-        ctx.arc(el.x, el.y, radius * CONFIG.junctionInnerRatio, 0, Math.PI*2);
+        ctx.arc(el.x, el.y, CONFIG.junctionInnerRadius, 0, Math.PI*2);
         ctx.fill();
         
         // Draw label
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillStyle = 'rgba(0,0,0,1)';
         ctx.font = `${12/state.transform.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -302,7 +310,7 @@ const drawing = {
         
         // Draw type label
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillStyle = 'rgba(0,0,0,1)';
         ctx.font = `${12/state.transform.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -312,10 +320,10 @@ const drawing = {
         // Draw connectors based on type
         const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
         if (typeConfig.hasOutput) {
-          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, 'rgba(100,100,100,0.4)', radius);
+          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, 'rgba(128,128,128,1)', radius);
         }
         if (typeConfig.hasInput) {
-          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(100,100,100,0.4)', radius);
+          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, 'rgba(128,128,128,1)', radius);
         }
       }
     });
@@ -343,7 +351,7 @@ const drawing = {
     const dx = mouseWorld.x - start.x, dy = mouseWorld.y - start.y;
     const cp2 = {x: start.x + dx/2, y: start.y + dy/2};
 
-    ctx.strokeStyle = 'rgba(128,128,128,0.8)';
+    ctx.strokeStyle = 'rgba(0,128,128,0.7)';
     ctx.lineWidth = CONFIG.lineWidth;
     ctx.lineCap = 'square';
     ctx.beginPath();
@@ -375,8 +383,7 @@ const input = {
     for (const el of state.elements) {
       // For junctions when checking for dragging, only check inner circle
       if (el.type === 'JUNCTION' && forDragging) {
-        const innerRadius = (CONFIG.elementRadius - CONFIG.connectorRadius) * CONFIG.junctionInnerRatio;
-        if (geometry.isPointInCircle(worldPos, el, innerRadius)) {
+        if (geometry.isPointInCircle(worldPos, el, CONFIG.junctionInnerRadius)) {
           return el;
         }
       } else if (el.type !== 'JUNCTION') {
@@ -395,10 +402,9 @@ const input = {
     for (const el of state.elements) {
       if (el.type === 'JUNCTION') {
         const outerRadius = CONFIG.elementRadius - CONFIG.connectorRadius;
-        const innerRadius = outerRadius * CONFIG.junctionInnerRatio;
         const distance = geometry.distance(worldPos, el);
         
-        if (distance <= outerRadius && distance > innerRadius) {
+        if (distance <= outerRadius && distance > CONFIG.junctionInnerRadius) {
           return el;
         }
       }
