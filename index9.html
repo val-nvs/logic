@@ -45,33 +45,37 @@ const ELEMENT_TYPES = {
     hasOutput: true,
     hasInput: true,
     color: '#6c6061',
-    label: 'NOT/NOR'
+    label: '→',
+    rotateText: true
   },
   'LED': {
     hasOutput: false,
     hasInput: true,
     color: '#825f45',
-    label: 'LED'
+    label: 'LED',
+    rotateText: false
   },
   'SWITCH': {
     hasOutput: true,
     hasInput: false,
     color: '#2f4858',
-    label: 'SWITCH'
+    label: 'SWITCH',
+    rotateText: false
   },
   'JUNCTION': {
     hasOutput: false,
     hasInput: false,
     isJunction: true,
     color: 'rgba(128,128,128,1)',
-    label: 'JUNCTION'
+    label: 'JUNCTION',
+    rotateText: false
   },
   'DIODE': {
-    hasOutput: false,
-    hasInput: false,
-    isJunction: true,
+    hasOutput: true,
+    hasInput: true,
     color: 'rgba(128,0,255,1)',
-    label: 'JUNCTION'
+    label: '→',
+    rotateText: true
   }
 };
 
@@ -293,7 +297,7 @@ const drawing = {
         ctx.arc(el.x, el.y, CONFIG.junctionInnerRadius, 0, Math.PI*2);
         ctx.fill();
         
-        // Draw label
+        // Draw label (non-rotated for junctions)
         ctx.save();
         ctx.fillStyle = 'rgba(0,0,0,1)';
         ctx.font = `${12/state.transform.scale}px sans-serif`;
@@ -308,13 +312,20 @@ const drawing = {
         ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
         ctx.fill();
         
-        // Draw type label
+        // Draw type label with optional rotation
         ctx.save();
         ctx.fillStyle = 'rgba(0,0,0,1)';
         ctx.font = `${12/state.transform.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(typeConfig.label, el.x, el.y);
+        
+        if (typeConfig.rotateText) {
+          ctx.translate(el.x, el.y);
+          ctx.rotate((el.rotation / CONFIG.steps) * 2 * Math.PI);
+          ctx.fillText(typeConfig.label, 0, 0);
+        } else {
+          ctx.fillText(typeConfig.label, el.x, el.y);
+        }
         ctx.restore();
         
         // Draw connectors based on type
@@ -704,6 +715,7 @@ document.getElementById('addNotNor').addEventListener('click', () => addElement(
 document.getElementById('addLED').addEventListener('click', () => addElement('LED'));
 document.getElementById('addSwitch').addEventListener('click', () => addElement('SWITCH'));
 document.getElementById('addJunction').addEventListener('click', () => addElement('JUNCTION'));
+document.getElementById('addDiode').addEventListener('click', () => addElement('DIODE'));
 
 document.getElementById('loadJSON').addEventListener('click', () => {
   const input = document.createElement('input');
