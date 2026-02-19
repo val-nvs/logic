@@ -1,0 +1,1195 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Logic Circuit</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    html, body {margin:0; padding:0; height:100%; background:#25171a; overflow:hidden;}
+    canvas#c {display:block; cursor:default; margin-top:60px;}
+    header {position:fixed; top:0; left:0; right:0; height:60px; background:#111; display:flex; align-items:center; padding:0 10px; z-index:10; gap:6px; border-bottom:1px solid #333;}
+    .toolbar-item {
+      width:52px; height:52px; position:relative; cursor:grab; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      border-radius:8px; background:#1a1a1a; border:1px solid #333;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .toolbar-item:hover {background:#222; border-color:#555;}
+    .toolbar-item:active {cursor:grabbing;}
+    .toolbar-item canvas {pointer-events:none;}
+    .toolbar-item .tooltip {
+      position:absolute; bottom:-22px; left:50%; transform:translateX(-50%);
+      font-size:9px; color:#888; white-space:nowrap; pointer-events:none;
+      opacity:0; transition: opacity 0.15s;
+    }
+    .toolbar-item:hover .tooltip {opacity:1;}
+    .toolbar-sep {width:1px; height:36px; background:#333; flex-shrink:0; margin:0 4px;}
+    header button {padding:5px 10px; background:#333; color:white; border:none; cursor:pointer; border-radius:4px; font-size:11px;}
+    header button:hover {background:#444;}
+    .drag-ghost {
+      position:fixed; pointer-events:none; z-index:1000; opacity:0.8;
+    }
+  </style>
+</head>
+<body>
+<header id="toolbar">
+  <div class="toolbar-item" data-type="SWITCH"><canvas width="44" height="44"></canvas><span class="tooltip">Switch</span></div>
+  <div class="toolbar-item" data-type="not/nor"><canvas width="44" height="44"></canvas><span class="tooltip">Not/Nor</span></div>
+  <div class="toolbar-item" data-type="DIODE"><canvas width="44" height="44"></canvas><span class="tooltip">Diode</span></div>
+  <div class="toolbar-item" data-type="JUNCTION"><canvas width="44" height="44"></canvas><span class="tooltip">Junction</span></div>
+  <div class="toolbar-item" data-type="LED"><canvas width="44" height="44"></canvas><span class="tooltip">LED</span></div>
+  <div class="toolbar-sep"></div>
+  <button id="loadJSON">Load</button>
+  <button id="exportJSON">Export</button>
+</header>
+<canvas id="c"></canvas>
+<script>
+// Configuration constants
+const CONFIG = {
+  steps: 16,
+  connectorRadius: 20,
+  lineWidth: 24,
+  elementRadius: 64,
+  junctionInnerRadius: 24, // Inner circle is 48px diameter (24px radius)
+  shootLength: 50,
+  gridSpacing: 45,
+  tolerance: 15,
+  zoomFactor: 0.1,
+  minScale: 0.2,
+  maxScale: 3,
+  doubleClickTime: 300 // ms
+};
+
+// Element types configuration
+const ELEMENT_TYPES = {
+  'not/nor': {
+    hasOutput: true,
+    hasInput: true,
+    color: '#6c6061',
+    label: '→',
+    rotateText: true
+  },
+  'LED': {
+    hasOutput: false,
+    hasInput: true,
+    color: '#825f45',
+    label: 'LED',
+    rotateText: false
+  },
+  'SWITCH': {
+    hasOutput: true,
+    hasInput: false,
+    color: '#2f4858',
+    label: 'SWITCH',
+    rotateText: false
+  },
+  'JUNCTION': {
+    hasOutput: false,
+    hasInput: false,
+    isJunction: true,
+    color: 'rgba(128,128,128,1)',
+    label: 'JUNCTION',
+    rotateText: false
+  },
+  'DIODE': {
+    hasOutput: true,
+    hasInput: true,
+    color: 'rgba(128,0,255,1)',
+    label: '→',
+    rotateText: true
+  }
+};
+
+// App state
+const state = {
+  elements: [
+    {x:200, y:200, rotation:0, type:'not/nor', active: false, id: 1}, 
+    {x:400, y:200, rotation:0, type:'not/nor', active: false, id: 2}
+  ],
+  connections: [],
+  drawing: {active: false, startEl: null, startType: null},
+  dragging: {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null},
+  transform: {scale: 1, offset: {x:0, y:0}},
+  mouse: {pos: null, dragStart: {x:0, y:0}, offsetStart: {x:0, y:0}},
+  lastClick: {time: 0, target: null},
+  signals: new Map() // Track active signals on connectors: key = "elementId-connectorType"
+};
+
+// Canvas setup
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight - 60;
+}
+
+// Coordinate transformation utilities
+const transform = {
+  screenToWorld: (x, y) => ({
+    x: (x - state.transform.offset.x) / state.transform.scale, 
+    y: (y - state.transform.offset.y) / state.transform.scale
+  }),
+  worldToScreen: (x, y) => ({
+    x: x * state.transform.scale + state.transform.offset.x, 
+    y: y * state.transform.scale + state.transform.offset.y
+  })
+};
+
+// Geometry utilities
+const geometry = {
+  distance: (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y),
+  
+  isPointInCircle: (point, center, radius) => 
+    geometry.distance(point, center) <= radius,
+  
+  getConnectorPos: (el, type) => {
+    const r = CONFIG.elementRadius - CONFIG.connectorRadius;
+    const angle = (el.rotation / CONFIG.steps) * 2 * Math.PI;
+    const multiplier = type === 'output' ? 1 : -1;
+    return {
+      x: el.x + multiplier * r * Math.cos(angle), 
+      y: el.y + multiplier * r * Math.sin(angle)
+    };
+  },
+  
+  getBezierPoint: (t, start, cp1, cp2, end) => ({
+    x: (1-t)**3 * start.x + 3*(1-t)**2*t * cp1.x + 3*(1-t)*t**2 * cp2.x + t**3 * end.x,
+    y: (1-t)**3 * start.y + 3*(1-t)**2*t * cp1.y + 3*(1-t)*t**2 * cp2.y + t**3 * end.y
+  }),
+  
+  isPointOnBezier: (point, start, cp1, cp2, end) => {
+    for (let t = 0; t <= 1; t += 0.05) {
+      const bezierPoint = geometry.getBezierPoint(t, start, cp1, cp2, end);
+      if (geometry.distance(point, bezierPoint) <= CONFIG.tolerance) return true;
+    }
+    return false;
+  }
+};
+
+// Connection utilities
+const connections = {
+  exists: (aEl, aType, bEl, bType) => 
+    state.connections.some(c =>
+      (c.startEl===aEl && c.startType===aType && c.endEl===bEl && c.endType===bType) ||
+      (c.startEl===bEl && c.startType===bType && c.endEl===aEl && c.endType===aType)
+    ),
+  
+  add: (startEl, startType, endEl, endType) => {
+    // Don't allow connections to same element
+    if (startEl === endEl) return;
+    
+    if (!connections.exists(startEl, startType, endEl, endType)) {
+      const conn = {startEl, startType, endEl, endType};
+      state.connections.push(conn);
+      signals.propagate(); // Update signals when connections change
+    }
+  },
+  
+  remove: (connection) => {
+    const index = state.connections.indexOf(connection);
+    if (index > -1) {
+      state.connections.splice(index, 1);
+      signals.propagate(); // Update signals when connections change
+    }
+  },
+  
+  removeByElement: (element) => {
+    const toRemove = state.connections.filter(c => 
+      c.startEl === element || c.endEl === element
+    );
+    
+    toRemove.forEach(conn => connections.remove(conn));
+  },
+  
+  getUnderMouse: (worldPos) => {
+    for (const c of state.connections) {
+      const start = c.startEl.type === 'JUNCTION' ? 
+        {x: c.startEl.x, y: c.startEl.y} : 
+        geometry.getConnectorPos(c.startEl, c.startType);
+      const end = c.endEl.type === 'JUNCTION' ? 
+        {x: c.endEl.x, y: c.endEl.y} : 
+        geometry.getConnectorPos(c.endEl, c.endType);
+      const {cp1, cp2} = connections.getControlPoints(c, start, end);
+      
+      if (geometry.isPointOnBezier(worldPos, start, cp1, cp2, end)) return c;
+    }
+    return null;
+  },
+  
+  getControlPoints: (connection, start, end) => {
+    const startDir = connection.startEl.type === 'JUNCTION' ? 
+      {x: end.x - start.x, y: end.y - start.y} :
+      {x: start.x - connection.startEl.x, y: start.y - connection.startEl.y};
+    const endDir = connection.endEl.type === 'JUNCTION' ?
+      {x: start.x - end.x, y: start.y - end.y} :
+      {x: end.x - connection.endEl.x, y: end.y - connection.endEl.y};
+    
+    const startLen = Math.hypot(startDir.x, startDir.y);
+    const endLen = Math.hypot(endDir.x, endDir.y);
+    
+    const startShoot = connection.startShootLength || CONFIG.shootLength;
+    const endShoot = connection.endShootLength || CONFIG.shootLength;
+    
+    return {
+      cp1: {x: start.x + (startLen > 0 ? startDir.x/startLen*startShoot : 0), 
+            y: start.y + (startLen > 0 ? startDir.y/startLen*startShoot : 0)},
+      cp2: {x: end.x + (endLen > 0 ? endDir.x/endLen*endShoot : 0), 
+            y: end.y + (endLen > 0 ? endDir.y/endLen*endShoot : 0)}
+    };
+  }
+};
+
+// Signal propagation system
+const signals = {
+  getConnectorKey: (element, connectorType) => `${element.id}-${connectorType}`,
+  
+  isConnectorActive: (element, connectorType) => {
+    const key = signals.getConnectorKey(element, connectorType);
+    return state.signals.has(key);
+  },
+  
+  setConnectorActive: (element, connectorType, active) => {
+    const key = signals.getConnectorKey(element, connectorType);
+    if (active) {
+      state.signals.set(key, true);
+    } else {
+      state.signals.delete(key);
+    }
+  },
+  
+  propagate: () => {
+    // Use iterative fixed-point: each pass clears signals, computes gate outputs
+    // from the PREVIOUS pass's inputs, then propagates connections.
+    // Repeat until stable.
+    
+    const maxPasses = 100;
+    
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const prevSignals = new Map(state.signals);
+      
+      // Clear all signals
+      state.signals.clear();
+      
+      // Set initial signals from active switches
+      state.elements.forEach(el => {
+        if (el.type === 'SWITCH' && el.active) {
+          signals.setConnectorActive(el, 'output', true);
+        }
+      });
+      
+      // Compute gate outputs based on PREVIOUS pass's inputs
+      state.elements.forEach(el => {
+        if (el.type === 'not/nor') {
+          const inputWasActive = prevSignals.has(signals.getConnectorKey(el, 'input'));
+          // NOT logic: output is opposite of input
+          signals.setConnectorActive(el, 'output', !inputWasActive);
+        }
+        if (el.type === 'DIODE') {
+          const inputWasActive = prevSignals.has(signals.getConnectorKey(el, 'input'));
+          if (inputWasActive) {
+            signals.setConnectorActive(el, 'output', true);
+          }
+        }
+      });
+      
+      // Propagate through connections until stable
+      let connChanged = true;
+      let connIterations = 0;
+      while (connChanged && connIterations < 100) {
+        connChanged = false;
+        connIterations++;
+        
+        state.connections.forEach(conn => {
+          const startActive = conn.startEl.type === 'JUNCTION' ? 
+            signals.isConnectorActive(conn.startEl, 'junction') :
+            signals.isConnectorActive(conn.startEl, conn.startType);
+            
+          const endActive = conn.endEl.type === 'JUNCTION' ?
+            signals.isConnectorActive(conn.endEl, 'junction') :
+            signals.isConnectorActive(conn.endEl, conn.endType);
+          
+          let shouldPropagateStartToEnd = false;
+          let shouldPropagateEndToStart = false;
+          
+          if (conn.startEl.type === 'JUNCTION' && conn.endEl.type === 'JUNCTION') {
+            shouldPropagateStartToEnd = startActive && !endActive;
+            shouldPropagateEndToStart = endActive && !startActive;
+          }
+          else if (conn.startEl.type === 'JUNCTION') {
+            if (conn.endType === 'input' || conn.endType === 'junction') {
+              shouldPropagateStartToEnd = startActive && !endActive;
+            }
+            if (conn.endType === 'output') {
+              shouldPropagateEndToStart = endActive && !startActive;
+            }
+          }
+          else if (conn.endEl.type === 'JUNCTION') {
+            if (conn.startType === 'output') {
+              shouldPropagateStartToEnd = startActive && !endActive;
+            }
+            if (conn.startType === 'input') {
+              shouldPropagateEndToStart = endActive && !startActive;
+            }
+          }
+          else {
+            if (conn.startType === 'output' && conn.endType === 'input') {
+              shouldPropagateStartToEnd = startActive && !endActive;
+            } else if (conn.startType === 'input' && conn.endType === 'output') {
+              shouldPropagateEndToStart = endActive && !startActive;
+            }
+          }
+          
+          if (shouldPropagateStartToEnd) {
+            const targetType = conn.endEl.type === 'JUNCTION' ? 'junction' : conn.endType;
+            signals.setConnectorActive(conn.endEl, targetType, true);
+            connChanged = true;
+          }
+          
+          if (shouldPropagateEndToStart) {
+            const sourceType = conn.startEl.type === 'JUNCTION' ? 'junction' : conn.startType;
+            signals.setConnectorActive(conn.startEl, sourceType, true);
+            connChanged = true;
+          }
+        });
+      }
+      
+      // Check if signals are identical to previous pass (stable)
+      if (prevSignals.size === state.signals.size) {
+        let stable = true;
+        for (const key of state.signals.keys()) {
+          if (!prevSignals.has(key)) { stable = false; break; }
+        }
+        if (stable) break;
+      }
+    }
+  },
+  
+  toggleSwitch: (switchElement) => {
+    if (switchElement.type === 'SWITCH') {
+      switchElement.active = !switchElement.active;
+      signals.propagate();
+    }
+  }
+};
+
+// Drawing functions
+const drawing = {
+  background: () => {
+    ctx.fillStyle = "#222";
+    const {scale, offset} = state.transform;
+    
+    // Calculate visible world bounds
+    const worldLeft = -offset.x / scale;
+    const worldTop = -offset.y / scale;
+    const worldRight = worldLeft + canvas.width / scale;
+    const worldBottom = worldTop + canvas.height / scale;
+    
+    // Find the grid bounds that cover the visible area
+    const gridLeft = Math.floor(worldLeft / CONFIG.gridSpacing) * CONFIG.gridSpacing;
+    const gridTop = Math.floor(worldTop / CONFIG.gridSpacing) * CONFIG.gridSpacing;
+    
+    // Draw grid dots
+    for(let x = gridLeft; x <= worldRight; x += CONFIG.gridSpacing) {
+      for(let y = gridTop; y <= worldBottom; y += CONFIG.gridSpacing) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5 / scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  },
+  
+  crescent: (elX, elY, angle, outerR, color, clipR) => {
+    const cx = elX + Math.cos(angle)*(CONFIG.elementRadius-CONFIG.connectorRadius);
+    const cy = elY + Math.sin(angle)*(CONFIG.elementRadius-CONFIG.connectorRadius);
+    ctx.save();
+    if(!state.drawing.active){
+      ctx.beginPath();
+      ctx.arc(elX, elY, clipR, 0, Math.PI*2);
+      ctx.clip();
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  },
+  
+  connections: () => {
+    state.connections.forEach(c => {
+      const start = c.startEl.type === 'JUNCTION' ? 
+        {x: c.startEl.x, y: c.startEl.y} : 
+        geometry.getConnectorPos(c.startEl, c.startType);
+      const end = c.endEl.type === 'JUNCTION' ? 
+        {x: c.endEl.x, y: c.endEl.y} : 
+        geometry.getConnectorPos(c.endEl, c.endType);
+      const {cp1, cp2} = connections.getControlPoints(c, start, end);
+
+      // Determine if wire should be green based on signal flow direction
+      let wireActive = false;
+      
+      const startActive = c.startEl.type === 'JUNCTION' ? 
+        signals.isConnectorActive(c.startEl, 'junction') :
+        signals.isConnectorActive(c.startEl, c.startType);
+      const endActive = c.endEl.type === 'JUNCTION' ?
+        signals.isConnectorActive(c.endEl, 'junction') :
+        signals.isConnectorActive(c.endEl, c.endType);
+      
+      // Wire is green only if it's carrying signal in the correct direction
+      // JUNCTION to JUNCTION - green if either is active
+      if (c.startEl.type === 'JUNCTION' && c.endEl.type === 'JUNCTION') {
+        wireActive = startActive || endActive;
+      }
+      // JUNCTION to element - green if junction is active and sending to input
+      else if (c.startEl.type === 'JUNCTION') {
+        if (c.endType === 'input') {
+          wireActive = startActive; // Junction sending to input
+        } else if (c.endType === 'output') {
+          wireActive = endActive; // Output sending to junction
+        }
+      }
+      // Element to JUNCTION - green if output is active and sending to junction
+      else if (c.endEl.type === 'JUNCTION') {
+        if (c.startType === 'output') {
+          wireActive = startActive; // Output sending to junction
+        } else if (c.startType === 'input') {
+          wireActive = endActive; // Junction sending to input
+        }
+      }
+      // Element to Element - green only if output is sending to input
+      else {
+        if (c.startType === 'output' && c.endType === 'input') {
+          wireActive = startActive; // Output sending to input
+        } else if (c.startType === 'input' && c.endType === 'output') {
+          wireActive = endActive; // Output sending to input (reverse connection)
+        }
+      }
+      
+      ctx.strokeStyle = wireActive ? 'rgba(0,255,0,0.8)' : 'rgba(128,128,128,0.7)';
+      ctx.lineWidth = CONFIG.lineWidth;
+      ctx.lineCap = 'square';
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+      ctx.stroke();
+    });
+  },
+  
+  elements: () => {
+    state.elements.forEach(el => {
+      const typeConfig = ELEMENT_TYPES[el.type];
+      const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+      
+      if (el.type === 'JUNCTION') {
+        // Draw junction same size as other elements
+        const junctionActive = signals.isConnectorActive(el, 'junction');
+        ctx.fillStyle = junctionActive ? 'rgba(0,255,0,0.8)' : typeConfig.color;
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Draw inner circle (always same color for dragging area)
+        ctx.fillStyle = 'rgba(96,96,96,1)';
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, CONFIG.junctionInnerRadius, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Draw label (non-rotated for junctions)
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.font = `${12/state.transform.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(typeConfig.label, el.x, el.y);
+        ctx.restore();
+      } else {
+        // Main circle with type-specific color
+        // For switches, show active state with brighter color
+        let circleColor = typeConfig.color;
+        if (el.type === 'SWITCH' && el.active) {
+          circleColor = 'rgba(0,200,255,1)'; // Bright blue when active
+        }
+        if (el.type === 'LED' && signals.isConnectorActive(el, 'input')) {
+          circleColor = 'rgba(255,60,20,1)'; // Bright red-orange when active
+        }
+        
+        ctx.fillStyle = circleColor;
+        ctx.beginPath();
+        ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Draw glow effect for active LED
+        if (el.type === 'LED' && signals.isConnectorActive(el, 'input')) {
+          ctx.save();
+          ctx.shadowColor = 'rgba(255,60,20,0.9)';
+          ctx.shadowBlur = 30 / state.transform.scale;
+          ctx.fillStyle = 'rgba(255,100,50,0.6)';
+          ctx.beginPath();
+          ctx.arc(el.x, el.y, radius, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+        
+        // Draw type label with optional rotation
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.font = `${12/state.transform.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        if (typeConfig.rotateText) {
+          ctx.translate(el.x, el.y);
+          ctx.rotate((el.rotation / CONFIG.steps) * 2 * Math.PI);
+          ctx.fillText(typeConfig.label, 0, 0);
+        } else {
+          ctx.fillText(typeConfig.label, el.x, el.y);
+        }
+        ctx.restore();
+        
+        // Draw connectors based on type
+        const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
+        if (typeConfig.hasOutput) {
+          const outputActive = signals.isConnectorActive(el, 'output');
+          const connectorColor = outputActive ? 'rgba(0,255,0,1)' : 'rgba(128,128,128,1)';
+          drawing.crescent(el.x, el.y, angle, CONFIG.connectorRadius, connectorColor, radius);
+        }
+        if (typeConfig.hasInput) {
+          const inputActive = signals.isConnectorActive(el, 'input');
+          const connectorColor = inputActive ? 'rgba(0,255,0,1)' : 'rgba(128,128,128,1)';
+          drawing.crescent(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, connectorColor, radius);
+        }
+      }
+    });
+  },
+  
+  currentLine: () => {
+    if (!state.drawing.active || !state.mouse.pos) return;
+    
+    const start = state.drawing.startType === 'junction' ? 
+      {x: state.drawing.startEl.x, y: state.drawing.startEl.y} :
+      geometry.getConnectorPos(state.drawing.startEl, state.drawing.startType);
+    const mouseWorld = transform.screenToWorld(state.mouse.pos.x, state.mouse.pos.y);
+    
+    let startDir;
+    if (state.drawing.startEl.type === 'JUNCTION') {
+      // For junctions, use the direction from center to mouse
+      startDir = {x: mouseWorld.x - start.x, y: mouseWorld.y - start.y};
+    } else {
+      startDir = {x: start.x - state.drawing.startEl.x, y: start.y - state.drawing.startEl.y};
+    }
+    
+    const startLen = Math.hypot(startDir.x, startDir.y);
+    const cp1 = {x: start.x + (startLen > 0 ? startDir.x/startLen*CONFIG.shootLength : 0), 
+                 y: start.y + (startLen > 0 ? startDir.y/startLen*CONFIG.shootLength : 0)};
+    const dx = mouseWorld.x - start.x, dy = mouseWorld.y - start.y;
+    const cp2 = {x: start.x + dx/2, y: start.y + dy/2};
+
+    ctx.strokeStyle = 'rgba(0,128,128,0.7)';
+    ctx.lineWidth = CONFIG.lineWidth;
+    ctx.lineCap = 'square';
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, mouseWorld.x, mouseWorld.y);
+    ctx.stroke();
+  }
+};
+
+function draw() {
+  const {scale, offset} = state.transform;
+  ctx.setTransform(scale, 0, 0, scale, offset.x, offset.y);
+  ctx.clearRect(-offset.x/scale, -offset.y/scale, canvas.width/scale, canvas.height/scale);
+  
+  drawing.background();
+  drawing.connections();
+  drawing.elements();
+  drawing.currentLine();
+}
+
+// Input handling
+const input = {
+  getMousePos: (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return {x: e.clientX - rect.left, y: e.clientY - rect.top};
+  },
+  
+  getElementUnderMouse: (worldPos, forDragging = false) => {
+    for (const el of state.elements) {
+      // For junctions when checking for dragging, only check inner circle
+      if (el.type === 'JUNCTION' && forDragging) {
+        if (geometry.isPointInCircle(worldPos, el, CONFIG.junctionInnerRadius)) {
+          return el;
+        }
+      } else if (el.type !== 'JUNCTION') {
+        // For non-junctions, check normal radius
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          return el;
+        }
+      }
+    }
+    return null;
+  },
+  
+  getJunctionRing: (worldPos) => {
+    // Check if mouse is on junction outer ring (between inner and outer circles)
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const outerRadius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        const distance = geometry.distance(worldPos, el);
+        
+        if (distance <= outerRadius && distance > CONFIG.junctionInnerRadius) {
+          return el;
+        }
+      }
+    }
+    return null;
+  },
+  
+  getConnectorUnderMouse: (worldPos) => {
+    // First check for junction rings
+    const junctionRing = input.getJunctionRing(worldPos);
+    if (junctionRing) {
+      return {el: junctionRing, type: 'junction'};
+    }
+    
+    // Then check regular connectors
+    for (const el of state.elements) {
+      const typeConfig = ELEMENT_TYPES[el.type];
+      
+      if (typeConfig.hasOutput) {
+        const output = geometry.getConnectorPos(el, 'output');
+        if (geometry.isPointInCircle(worldPos, output, CONFIG.connectorRadius)) {
+          return {el, type: 'output'};
+        }
+      }
+      
+      if (typeConfig.hasInput) {
+        const input = geometry.getConnectorPos(el, 'input');
+        if (geometry.isPointInCircle(worldPos, input, CONFIG.connectorRadius)) {
+          return {el, type: 'input'};
+        }
+      }
+    }
+    return null;
+  },
+  
+  getCursor: (worldPos) => {
+    const connector = input.getConnectorUnderMouse(worldPos);
+    if (connector) return 'pointer';
+    
+    const element = input.getElementUnderMouse(worldPos, true);
+    if (element) return 'default';
+    
+    const connection = connections.getUnderMouse(worldPos);
+    if (connection) return 'ew-resize';
+    
+    if (state.dragging.element) return 'grabbing';
+    if (state.dragging.background) return 'grabbing';
+    
+    return 'default';
+  }
+};
+
+// Event handlers
+canvas.addEventListener('mousemove', e => {
+  const pos = input.getMousePos(e);
+  state.mouse.pos = pos;
+  const worldPos = transform.screenToWorld(pos.x, pos.y);
+
+  if (state.dragging.background) {
+    state.transform.offset.x = state.mouse.offsetStart.x + (pos.x - state.mouse.dragStart.x);
+    state.transform.offset.y = state.mouse.offsetStart.y + (pos.y - state.mouse.dragStart.y);
+    draw();
+    return;
+  }
+
+  if (state.dragging.element) {
+    state.dragging.element.x = worldPos.x - state.dragging.offsetX;
+    state.dragging.element.y = worldPos.y - state.dragging.offsetY;
+  }
+
+  canvas.style.cursor = input.getCursor(worldPos);
+  draw();
+});
+
+canvas.addEventListener('mousedown', e => {
+  const pos = input.getMousePos(e);
+  const worldPos = transform.screenToWorld(pos.x, pos.y);
+  const currentTime = Date.now();
+  
+  // Store initial position for drag detection
+  state.dragging.startPos = {...worldPos};
+  
+  // Check for double click
+  const isDoubleClick = currentTime - state.lastClick.time < CONFIG.doubleClickTime;
+  
+  // Handle double click on connections
+  const connection = connections.getUnderMouse(worldPos);
+  if (connection && isDoubleClick) {
+    connections.remove(connection);
+    draw();
+    return;
+  }
+  
+  // Handle double click on elements (check full junction area for deletion)
+  let element = input.getElementUnderMouse(worldPos, false);
+  if (!element) {
+    // Check if it's a junction (full area for deletion)
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          element = el;
+          break;
+        }
+      }
+    }
+  }
+  
+  if (element && isDoubleClick && state.lastClick.target === element) {
+    connections.removeByElement(element);
+    const index = state.elements.indexOf(element);
+    if (index > -1) {
+      state.elements.splice(index, 1);
+    }
+    draw();
+    return;
+  }
+  
+  // Don't toggle switch on mousedown - allow dragging instead
+  // Toggle will happen on mouseup if it was a click (no movement)
+  
+  // Update last click info
+  state.lastClick.time = currentTime;
+  state.lastClick.target = element;
+  
+  // Check connectors first (including junction rings for dragging connections)
+  const connector = input.getConnectorUnderMouse(worldPos);
+  if (connector) {
+    state.drawing.active = true;
+    state.drawing.startEl = connector.el;
+    state.drawing.startType = connector.type;
+    return;
+  }
+  
+  // Setup element dragging (only inner circle for junctions)
+  element = input.getElementUnderMouse(worldPos, true);
+  if (element) {
+    state.dragging.element = element;
+    state.dragging.offsetX = worldPos.x - element.x;
+    state.dragging.offsetY = worldPos.y - element.y;
+    return;
+  }
+  
+  // Background drag
+  state.dragging.background = true;
+  state.mouse.dragStart = pos;
+  state.mouse.offsetStart = {...state.transform.offset};
+});
+
+canvas.addEventListener('mouseup', e => {
+  const pos = input.getMousePos(e);
+  const worldPos = transform.screenToWorld(pos.x, pos.y);
+  
+  if (state.dragging.background) {
+    state.dragging.background = false;
+  }
+
+  // Toggle switch on click (mouseup without significant movement)
+  if (state.dragging.element && state.dragging.element.type === 'SWITCH') {
+    const dragDist = Math.hypot(worldPos.x - (state.dragging.startPos?.x || 0), worldPos.y - (state.dragging.startPos?.y || 0));
+    if (dragDist < 5) {
+      signals.toggleSwitch(state.dragging.element);
+    }
+  }
+
+  if (state.drawing.active) {
+    const connector = input.getConnectorUnderMouse(worldPos);
+    const targetElement = input.getElementUnderMouse(worldPos, false);
+    
+    // Check if target is a junction (full area)
+    let junctionTarget = null;
+    for (const el of state.elements) {
+      if (el.type === 'JUNCTION') {
+        const radius = CONFIG.elementRadius - CONFIG.connectorRadius;
+        if (geometry.isPointInCircle(worldPos, el, radius)) {
+          junctionTarget = el;
+          break;
+        }
+      }
+    }
+    
+    // Allow connections to connectors or junctions
+    if (connector) {
+      connections.add(state.drawing.startEl, state.drawing.startType, connector.el, connector.type);
+    } else if (junctionTarget) {
+      connections.add(state.drawing.startEl, state.drawing.startType, junctionTarget, 'junction');
+    } else if (targetElement && targetElement.type === 'JUNCTION') {
+      connections.add(state.drawing.startEl, state.drawing.startType, targetElement, 'junction');
+    }
+  }
+
+  // Reset all interaction states
+  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
+  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null});
+  state.mouse.pos = null;
+  draw();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
+  Object.assign(state.dragging, {element: null, background: false, startPos: null});
+  state.mouse.pos = null;
+  draw();
+});
+
+canvas.addEventListener('wheel', e => {
+  const pos = input.getMousePos(e);
+  const worldPos = transform.screenToWorld(pos.x, pos.y);
+  
+  // Element rotation (not for junctions)
+  const element = input.getElementUnderMouse(worldPos, false);
+  if (element && element.type !== 'JUNCTION') {
+    element.rotation += e.deltaY > 0 ? 1 : -1;
+    if (element.rotation < 0) element.rotation += CONFIG.steps;
+    if (element.rotation >= CONFIG.steps) element.rotation -= CONFIG.steps;
+  }
+  // Bezier curve adjustment
+  else {
+    const connection = connections.getUnderMouse(worldPos);
+    if (connection) {
+      const delta = e.deltaY > 0 ? -20 : 20;
+      connection.startShootLength = Math.max(20, Math.min(500, (connection.startShootLength || CONFIG.shootLength) + delta));
+      connection.endShootLength = Math.max(20, Math.min(500, (connection.endShootLength || CONFIG.shootLength) + delta));
+    }
+    // Zoom
+    else {
+      const factor = e.deltaY > 0 ? (1 - CONFIG.zoomFactor) : (1 + CONFIG.zoomFactor);
+      const worldBefore = worldPos;
+      
+      state.transform.scale = Math.max(CONFIG.minScale, Math.min(CONFIG.maxScale, state.transform.scale * factor));
+      
+      const worldAfter = transform.screenToWorld(pos.x, pos.y);
+      state.transform.offset.x += (worldAfter.x - worldBefore.x) * state.transform.scale;
+      state.transform.offset.y += (worldAfter.y - worldBefore.y) * state.transform.scale;
+    }
+  }
+
+  draw();
+  e.preventDefault();
+});
+
+// UI handlers
+function addElementAt(type, screenX, screenY) {
+  const rect = canvas.getBoundingClientRect();
+  const canvasX = screenX - rect.left;
+  const canvasY = screenY - rect.top;
+  const worldPos = transform.screenToWorld(canvasX, canvasY);
+  
+  const element = {
+    x: worldPos.x, 
+    y: worldPos.y, 
+    rotation: 0,
+    type: type,
+    id: Date.now() + Math.random(),
+    active: false
+  };
+  
+  state.elements.push(element);
+  signals.propagate();
+  draw();
+  return element;
+}
+
+// Draw toolbar previews
+function drawToolbarPreviews() {
+  document.querySelectorAll('.toolbar-item').forEach(item => {
+    const type = item.dataset.type;
+    const tc = ELEMENT_TYPES[type];
+    const c = item.querySelector('canvas');
+    const cx = c.getContext('2d');
+    const size = 44;
+    const r = 18; // preview circle radius
+    const center = size / 2;
+    
+    cx.clearRect(0, 0, size, size);
+    
+    if (type === 'JUNCTION') {
+      // Outer ring
+      cx.fillStyle = tc.color;
+      cx.beginPath();
+      cx.arc(center, center, r, 0, Math.PI * 2);
+      cx.fill();
+      // Inner circle
+      cx.fillStyle = 'rgba(96,96,96,1)';
+      cx.beginPath();
+      cx.arc(center, center, r * 0.55, 0, Math.PI * 2);
+      cx.fill();
+    } else {
+      // Main body
+      cx.fillStyle = tc.color;
+      cx.beginPath();
+      cx.arc(center, center, r, 0, Math.PI * 2);
+      cx.fill();
+      
+      // Connectors as small crescents
+      if (tc.hasOutput) {
+        cx.fillStyle = 'rgba(128,128,128,1)';
+        cx.beginPath();
+        cx.save();
+        cx.beginPath();
+        cx.arc(center, center, r, 0, Math.PI * 2);
+        cx.clip();
+        cx.beginPath();
+        cx.arc(center + r, center, 9, 0, Math.PI * 2);
+        cx.fill();
+        cx.restore();
+      }
+      if (tc.hasInput) {
+        cx.fillStyle = 'rgba(128,128,128,1)';
+        cx.save();
+        cx.beginPath();
+        cx.arc(center, center, r, 0, Math.PI * 2);
+        cx.clip();
+        cx.beginPath();
+        cx.arc(center - r, center, 9, 0, Math.PI * 2);
+        cx.fill();
+        cx.restore();
+      }
+    }
+    
+    // Label
+    cx.fillStyle = 'rgba(0,0,0,0.8)';
+    cx.font = '7px sans-serif';
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    if (tc.rotateText) {
+      cx.fillText(tc.label, center, center);
+    } else {
+      cx.fillText(tc.label, center, center);
+    }
+  });
+}
+
+// Toolbar drag-and-drop
+(function initToolbarDrag() {
+  let dragState = null; // {type, ghost, offsetX, offsetY}
+  
+  document.querySelectorAll('.toolbar-item').forEach(item => {
+    item.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const type = item.dataset.type;
+      const rect = item.getBoundingClientRect();
+      
+      // Create ghost element
+      const ghost = document.createElement('div');
+      ghost.className = 'drag-ghost';
+      const ghostCanvas = document.createElement('canvas');
+      ghostCanvas.width = 88;
+      ghostCanvas.height = 88;
+      ghost.appendChild(ghostCanvas);
+      document.body.appendChild(ghost);
+      
+      // Draw ghost preview (larger)
+      const tc = ELEMENT_TYPES[type];
+      const gcx = ghostCanvas.getContext('2d');
+      const gr = 36;
+      const gc = 44;
+      
+      if (type === 'JUNCTION') {
+        gcx.fillStyle = tc.color;
+        gcx.beginPath();
+        gcx.arc(gc, gc, gr, 0, Math.PI * 2);
+        gcx.fill();
+        gcx.fillStyle = 'rgba(96,96,96,1)';
+        gcx.beginPath();
+        gcx.arc(gc, gc, gr * 0.55, 0, Math.PI * 2);
+        gcx.fill();
+      } else {
+        gcx.fillStyle = tc.color;
+        gcx.beginPath();
+        gcx.arc(gc, gc, gr, 0, Math.PI * 2);
+        gcx.fill();
+        if (tc.hasOutput) {
+          gcx.fillStyle = 'rgba(128,128,128,1)';
+          gcx.save();
+          gcx.beginPath();
+          gcx.arc(gc, gc, gr, 0, Math.PI * 2);
+          gcx.clip();
+          gcx.beginPath();
+          gcx.arc(gc + gr, gc, 16, 0, Math.PI * 2);
+          gcx.fill();
+          gcx.restore();
+        }
+        if (tc.hasInput) {
+          gcx.fillStyle = 'rgba(128,128,128,1)';
+          gcx.save();
+          gcx.beginPath();
+          gcx.arc(gc, gc, gr, 0, Math.PI * 2);
+          gcx.clip();
+          gcx.beginPath();
+          gcx.arc(gc - gr, gc, 16, 0, Math.PI * 2);
+          gcx.fill();
+          gcx.restore();
+        }
+      }
+      gcx.fillStyle = 'rgba(0,0,0,0.8)';
+      gcx.font = '10px sans-serif';
+      gcx.textAlign = 'center';
+      gcx.textBaseline = 'middle';
+      gcx.fillText(tc.label, gc, gc);
+      
+      dragState = {
+        type,
+        ghost,
+        offsetX: e.clientX - rect.left - rect.width / 2,
+        offsetY: e.clientY - rect.top - rect.height / 2
+      };
+      
+      ghost.style.left = (e.clientX - 44) + 'px';
+      ghost.style.top = (e.clientY - 44) + 'px';
+    });
+  });
+  
+  document.addEventListener('mousemove', e => {
+    if (!dragState) return;
+    dragState.ghost.style.left = (e.clientX - 44) + 'px';
+    dragState.ghost.style.top = (e.clientY - 44) + 'px';
+  });
+  
+  document.addEventListener('mouseup', e => {
+    if (!dragState) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const dropX = e.clientX;
+    const dropY = e.clientY;
+    
+    // Only place if dropped on the canvas area
+    if (dropY > rect.top && dropX >= rect.left && dropX <= rect.right && dropY <= rect.bottom) {
+      addElementAt(dragState.type, dropX, dropY);
+    }
+    
+    dragState.ghost.remove();
+    dragState = null;
+  });
+})();
+
+// Layout loading function
+function loadLayout(data) {
+  // Clear current state
+  state.elements = [];
+  state.connections = [];
+  state.signals.clear();
+  
+  // Load elements
+  if (data.elements && Array.isArray(data.elements)) {
+    state.elements = data.elements.map(el => ({
+      x: el.x || 0,
+      y: el.y || 0, 
+      rotation: el.rotation || 0,
+      type: el.type || 'not/nor',
+      id: el.id || (Date.now() + Math.random()),
+      active: el.active || false
+    }));
+  }
+  
+  // Load connections
+  if (data.connections && Array.isArray(data.connections)) {
+    data.connections.forEach(c => {
+      const startEl = state.elements[c.startIndex];
+      const endEl = state.elements[c.endIndex];
+      
+      if (startEl && endEl) {
+        const connection = {
+          startEl,
+          startType: c.startType || 'output',
+          endEl,
+          endType: c.endType || 'input'
+        };
+        
+        // Preserve custom shoot lengths if they exist
+        if (c.startShootLength !== undefined) {
+          connection.startShootLength = c.startShootLength;
+        }
+        if (c.endShootLength !== undefined) {
+          connection.endShootLength = c.endShootLength;
+        }
+        
+        state.connections.push(connection);
+      }
+    });
+  }
+  
+  // Reset transform and drawing state
+  Object.assign(state.drawing, {active: false, startEl: null, startType: null});
+  Object.assign(state.dragging, {element: null, background: false, offsetX: 0, offsetY: 0, startPos: null});
+  state.mouse.pos = null;
+  
+  // Propagate signals after loading
+  signals.propagate();
+  draw();
+}
+
+// Initialize toolbar previews
+drawToolbarPreviews();
+
+document.getElementById('loadJSON').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        loadLayout(data);
+      } catch (error) {
+        alert('Error loading JSON file: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+document.getElementById('exportJSON').addEventListener('click', () => {
+  const data = {
+    elements: state.elements.map(el => ({
+      x: el.x, 
+      y: el.y, 
+      rotation: el.rotation,
+      type: el.type,
+      id: el.id,
+      active: el.active
+    })),
+    connections: state.connections.map(c => ({
+      startIndex: state.elements.indexOf(c.startEl), 
+      startType: c.startType, 
+      endIndex: state.elements.indexOf(c.endEl), 
+      endType: c.endType,
+      startShootLength: c.startShootLength,
+      endShootLength: c.endShootLength
+    }))
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), {
+    href: url,
+    download: `logic_${new Date().toISOString().slice(2,16).replace('T','_').replace(':','-')}.json`
+  });
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Initialize
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+signals.propagate(); // Run initial signal propagation
+draw();
+</script>
+</body>
+</html>
