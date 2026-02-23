@@ -1,0 +1,1421 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>NOT NOR</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+    :root {
+      --bg-deep: #0a0e14;
+      --bg-surface: #0f1923;
+      --bg-card: #141e2b;
+      --bg-elevated: #1a2636;
+      --accent: #e8a838;
+      --accent-dim: #c48a28;
+      --accent-glow: rgba(232, 168, 56, 0.12);
+      --accent-glow-strong: rgba(232, 168, 56, 0.3);
+      --signal: #f0c050;
+      --signal-bright: #ffe080;
+      --text: #d0cdd8;
+      --text-dim: #6b7a8d;
+      --text-muted: #3d4f60;
+      --danger: #e84855;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    
+    html, body { 
+      height: 100%; 
+      background: var(--bg-deep); 
+      overflow: hidden; 
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text);
+      touch-action: none;
+    }
+
+    /* ── MAIN MENU ── */
+    #menu-screen {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; flex-direction: column;
+      background: var(--bg-deep);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+      overflow: hidden;
+    }
+    #menu-screen.hidden { opacity: 0; pointer-events: none; transform: scale(1.02); }
+
+    .menu-scene { position: absolute; inset: 0; }
+    .menu-scene canvas { width: 100%; height: 100%; }
+
+    .menu-overlay {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      height: 100%;
+    }
+
+    .menu-top {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 30px 20px 10px;
+    }
+
+    .menu-brand {
+      display: flex; flex-direction: column; align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .menu-wordmark {
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      font-size: clamp(48px, 12vw, 90px);
+      letter-spacing: -2px;
+      line-height: 0.9;
+      text-align: center;
+    }
+    .menu-word-not { color: var(--text); }
+    .menu-word-nor { color: var(--accent); text-shadow: 0 0 40px rgba(232,168,56,0.3); }
+
+    .menu-tagline {
+      font-family: 'Space Mono', monospace;
+      font-size: clamp(9px, 2vw, 11px);
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 14px;
+    }
+
+    .menu-wire-canvas { width: 280px; height: 60px; margin-top: 20px; opacity: 0.6; }
+
+    .menu-bottom {
+      padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0px));
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0;
+    }
+
+    .menu-actions {
+      display: flex; gap: 8px;
+      flex-wrap: wrap; justify-content: center;
+      max-width: 500px; width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .menu-action {
+      flex: 1; min-width: 110px;
+      padding: 14px 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: var(--radius);
+      color: var(--text-dim);
+      font-family: 'Space Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .menu-action:hover { background: rgba(255,255,255,0.06); color: var(--text); border-color: rgba(255,255,255,0.1); }
+    .menu-action:active { transform: scale(0.97); }
+    .menu-action.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #1a1000;
+    }
+    .menu-action.primary:hover { filter: brightness(1.1); }
+
+    .menu-footer-line {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 3px;
+      opacity: 0.5;
+    }
+
+    /* ── HELP OVERLAY ── */
+    #help-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(5,8,12,0.88);
+      backdrop-filter: blur(12px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    #help-overlay.visible { opacity: 1; pointer-events: all; }
+    
+    .help-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 14px;
+      padding: 24px 22px;
+      max-width: 440px; width: 100%;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .help-card h2 {
+      font-family: 'Space Mono', monospace;
+      font-size: 18px; font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 18px;
+      letter-spacing: 1px;
+    }
+    .help-section { margin-bottom: 18px; }
+    .help-section h3 {
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 2px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      font-family: 'Space Mono', monospace;
+    }
+    .help-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 0;
+      font-size: 13px; color: var(--text-dim);
+    }
+    .help-key {
+      background: var(--bg-elevated);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 3px 8px; border-radius: 4px;
+      font-family: 'Space Mono', monospace;
+      font-size: 10px; color: var(--accent);
+      flex-shrink: 0; min-width: 80px; text-align: center;
+    }
+    .help-close-btn {
+      width: 100%; margin-top: 14px;
+      padding: 11px; border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      border: 1px solid rgba(255,255,255,0.05);
+      color: var(--text-dim);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .help-close-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── GAME TOOLBAR ── */
+    #game-ui { display: none; }
+    #game-ui.active { display: block; }
+
+    header {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 100px;
+      background: rgba(10, 14, 20, 0.88);
+      backdrop-filter: blur(14px);
+      display: flex; align-items: center;
+      padding: 0 10px;
+      z-index: 10;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      gap: 6px;
+    }
+
+    .tb-back {
+      width: 56px; height: 56px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius);
+      border: none; background: transparent;
+      color: var(--text-muted); font-size: 22px;
+      cursor: pointer; flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .tb-back:hover { background: var(--bg-elevated); color: var(--text); }
+
+    .toolbar-scroll {
+      flex: 1; display: flex;
+      overflow-x: auto; overflow-y: hidden;
+      gap: 6px; scrollbar-width: none;
+      -ms-overflow-style: none; padding: 4px 0;
+    }
+    .toolbar-scroll::-webkit-scrollbar { display: none; }
+
+    .toolbar-item {
+      width: 84px; height: 84px;
+      position: relative; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid rgba(255,255,255,0.03);
+      transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    }
+    .toolbar-item:hover { background: var(--bg-elevated); border-color: rgba(255,255,255,0.08); }
+    .toolbar-item:active { transform: scale(0.95); }
+    .toolbar-item.selected { 
+      border-color: var(--accent); 
+      background: var(--accent-glow);
+      box-shadow: 0 0 12px rgba(232,168,56,0.15);
+    }
+    .toolbar-item canvas { pointer-events: none; }
+    .toolbar-item .tooltip {
+      position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; color: var(--text-muted);
+      font-family: 'Space Mono', monospace;
+      white-space: nowrap; pointer-events: none;
+      opacity: 0; transition: opacity 0.15s;
+    }
+    .toolbar-item:hover .tooltip { opacity: 1; }
+
+    .toolbar-sep { width: 1px; height: 56px; background: rgba(255,255,255,0.04); flex-shrink: 0; margin: 0 4px; align-self: center; }
+
+    .tb-actions { display: flex; gap: 5px; flex-shrink: 0; }
+
+    header button.tb-btn {
+      padding: 10px 14px;
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid rgba(255,255,255,0.03);
+      cursor: pointer;
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-family: 'Space Mono', monospace;
+      font-weight: 400;
+      letter-spacing: 0.5px;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    header button.tb-btn:hover { background: var(--bg-elevated); color: var(--text-dim); border-color: rgba(255,255,255,0.08); }
+    header button.tb-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+    /* ── MOBILE BOTTOM BAR ── */
+    .mobile-bar {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(10, 14, 20, 0.92);
+      backdrop-filter: blur(14px);
+      border-top: 1px solid rgba(255,255,255,0.03);
+      padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)) 8px;
+      z-index: 10; gap: 5px;
+      justify-content: center; flex-wrap: wrap;
+    }
+    .mobile-bar .toolbar-item { width: 50px; height: 50px; }
+    .mobile-grid-btn { align-self: center; }
+    .mobile-grid-btn.active { border-color: var(--accent) !important; color: var(--accent) !important; background: var(--accent-glow) !important; }
+
+    canvas#c { display: block; cursor: default; }
+
+    .drag-ghost { position: fixed; pointer-events: none; z-index: 1000; opacity: 0.85; }
+
+    .placement-indicator {
+      display: none;
+      position: fixed;
+      bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+      left: 50%; transform: translateX(-50%);
+      background: var(--accent);
+      color: #1a1000;
+      padding: 7px 16px;
+      border-radius: 16px;
+      font-size: 12px; font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      z-index: 11;
+      box-shadow: 0 2px 16px rgba(232,168,56,0.3);
+    }
+
+    .toast {
+      position: fixed;
+      top: 112px; left: 50%; transform: translateX(-50%) translateY(-16px);
+      background: var(--bg-card);
+      border: 1px solid rgba(232,168,56,0.15);
+      padding: 8px 18px;
+      border-radius: var(--radius);
+      font-size: 12px; color: var(--accent);
+      z-index: 50; opacity: 0;
+      transition: all 0.3s ease;
+      pointer-events: none;
+      font-family: 'Space Mono', monospace;
+      letter-spacing: 0.5px;
+    }
+    .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 700px) {
+      header { height: 48px; padding: 0 6px; gap: 3px; }
+      .tb-back { width: 36px; height: 36px; font-size: 16px; border-radius: var(--radius-sm); }
+      .toolbar-scroll { display: none; }
+      .toolbar-sep { display: none; }
+      .mobile-bar { display: flex; }
+      .mobile-bar .toolbar-item { width: 50px; height: 50px; border-radius: var(--radius-sm); }
+      header button.tb-btn { padding: 5px 8px; font-size: 10px; border-radius: var(--radius-sm); }
+      .tb-actions { gap: 3px; }
+      canvas#c { margin-top: 48px !important; }
+      .tb-actions button span.desktop-label { display: none; }
+      .toast { top: 58px; }
+    }
+    @media (min-width: 701px) {
+      canvas#c { margin-top: 100px; }
+      .placement-indicator { display: none !important; }
+    }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══ MAIN MENU ═══ -->
+<div id="menu-screen">
+  <div class="menu-scene"><canvas id="menu-scene-canvas"></canvas></div>
+  <div class="menu-overlay">
+    <div class="menu-top">
+      <div class="menu-brand">
+        <div class="menu-wordmark">
+          <span class="menu-word-not">NOT</span><br>
+          <span class="menu-word-nor">NOR</span>
+        </div>
+        <div class="menu-tagline">Logic Circuit Sandbox</div>
+        <canvas class="menu-wire-canvas" id="menu-wire-canvas" width="560" height="120"></canvas>
+      </div>
+    </div>
+    <div class="menu-bottom">
+      <div class="menu-actions">
+        <button class="menu-action primary" id="btn-new-game">NEW</button>
+        <button class="menu-action" id="btn-load-game">LOAD</button>
+        <button class="menu-action" id="btn-demo">DEMO</button>
+        <button class="menu-action" id="btn-help">HELP</button>
+      </div>
+      <div class="menu-footer-line">TOUCH + DESKTOP</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HELP OVERLAY ═══ -->
+<div id="help-overlay">
+  <div class="help-card">
+    <h2>// HOW TO PLAY</h2>
+    <div class="help-section">
+      <h3>Components</h3>
+      <div class="help-row"><span class="help-key">SWITCH</span> Tap to toggle signal on/off</div>
+      <div class="help-row"><span class="help-key">NOT/NOR</span> Inverts signal (out = !in)</div>
+      <div class="help-row"><span class="help-key">DIODE</span> Passes signal one-way</div>
+      <div class="help-row"><span class="help-key">JUNCTION</span> Splits / merges wires</div>
+      <div class="help-row"><span class="help-key">LED</span> Glows when receiving signal</div>
+    </div>
+    <div class="help-section">
+      <h3>Desktop</h3>
+      <div class="help-row"><span class="help-key">Drag</span> Move components</div>
+      <div class="help-row"><span class="help-key">Click port</span> Draw a wire</div>
+      <div class="help-row"><span class="help-key">Scroll</span> Rotate / Zoom</div>
+      <div class="help-row"><span class="help-key">Dbl-Click</span> Delete</div>
+    </div>
+    <div class="help-section">
+      <h3>Mobile</h3>
+      <div class="help-row"><span class="help-key">Tap palette</span> Select component</div>
+      <div class="help-row"><span class="help-key">Tap canvas</span> Place component</div>
+      <div class="help-row"><span class="help-key">Pinch</span> Zoom in/out</div>
+      <div class="help-row"><span class="help-key">Long-press</span> Delete</div>
+    </div>
+    <button class="help-close-btn" id="btn-close-help">GOT IT</button>
+  </div>
+</div>
+
+<!-- ═══ GAME UI ═══ -->
+<div id="game-ui">
+  <header id="toolbar">
+    <button class="tb-back" id="btn-menu" title="Menu">✕</button>
+    <div class="toolbar-scroll">
+      <div class="toolbar-item" data-type="SWITCH"><canvas width="70" height="70"></canvas><span class="tooltip">Switch</span></div>
+      <div class="toolbar-item" data-type="not/nor"><canvas width="70" height="70"></canvas><span class="tooltip">Not/Nor</span></div>
+      <div class="toolbar-item" data-type="DIODE"><canvas width="70" height="70"></canvas><span class="tooltip">Diode</span></div>
+      <div class="toolbar-item" data-type="JUNCTION"><canvas width="70" height="70"></canvas><span class="tooltip">Junction</span></div>
+      <div class="toolbar-item" data-type="LED"><canvas width="70" height="70"></canvas><span class="tooltip">LED</span></div>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="tb-actions">
+      <button class="tb-btn" id="btn-grid-snap" title="Snap to grid">GRID</button>
+      <button class="tb-btn" id="loadJSON" title="Load">LOAD</button>
+      <button class="tb-btn" id="exportJSON" title="Export">SAVE</button>
+      <button class="tb-btn" id="btn-help-game" title="Help">?</button>
+    </div>
+  </header>
+  <div class="mobile-bar" id="mobile-bar">
+    <div class="toolbar-item" data-type="SWITCH"><canvas width="36" height="36"></canvas><span class="tooltip">Switch</span></div>
+    <div class="toolbar-item" data-type="not/nor"><canvas width="36" height="36"></canvas><span class="tooltip">Not/Nor</span></div>
+    <div class="toolbar-item" data-type="DIODE"><canvas width="36" height="36"></canvas><span class="tooltip">Diode</span></div>
+    <div class="toolbar-item" data-type="JUNCTION"><canvas width="36" height="36"></canvas><span class="tooltip">Junction</span></div>
+    <div class="toolbar-item" data-type="LED"><canvas width="36" height="36"></canvas><span class="tooltip">LED</span></div>
+    <button class="tb-btn mobile-grid-btn" id="btn-grid-snap-mobile">GRID</button>
+  </div>
+  <div class="placement-indicator" id="placement-indicator">Tap canvas to place</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<canvas id="c"></canvas>
+
+<script>
+// ══════════════════════════════════════════
+// THEME — warm copper-amber industrial
+// ══════════════════════════════════════════
+const THEME = {
+  bgCanvas: '#0c1018',
+  gridDot: 'rgba(232,168,56,0.08)',
+  gridCross: 'rgba(232,168,56,0.03)',
+  // Signals
+  wireActive: '#f0c050',
+  wireActiveFaint: 'rgba(240,192,80,0.5)',
+  wireInactive: '#2a3545',
+  wireInactiveStroke: '#35445a',
+  wireDrawing: 'rgba(232,168,56,0.55)',
+  // Nodes — each type has its own rich palette
+  nodes: {
+    'SWITCH': {
+      bodyOff: ['#1a3848','#234860'],     // gradient stops
+      bodyOn:  ['#1a6888','#2090a8'],
+      ring: '#0f2a38',
+      ringOn: '#10506a',
+      label: '#c0dae8',
+      labelOn: '#c8e0f0',
+      symbol: 'SW',
+    },
+    'not/nor': {
+      body: ['#2e1848','#482868'],
+      ring: '#1e1030',
+      label: '#c0a0e0',
+      symbol: 'NOT',
+    },
+    'DIODE': {
+      body: ['#283040','#385060'],
+      ring: '#1a2430',
+      label: '#a0c0d8',
+      symbol: 'DIO',
+    },
+    'JUNCTION': {
+      bodyOff: ['#283038','#354048'],
+      bodyOn:  ['#886828','#c09838'],
+      ring: '#1a2028',
+      inner: ['#1a2028','#222c38'],
+      innerOn: ['#685020','#886830'],
+    },
+    'LED': {
+      bodyOff: ['#382820','#483828'],
+      bodyOn:  ['#c8a010','#f0d020'],
+      ring: '#281810',
+      glowColor: '#ffe040',
+      label: '#c8a890',
+      labelOn: '#ffffff',
+      symbol: 'LED',
+    }
+  },
+  // Connectors
+  connectorActive: '#f0c050',
+  connectorActiveGlow: 'rgba(240,192,80,0.4)',
+  connectorInactive: '#384858',
+  connectorInactiveLight: '#485868',
+  // Text
+  nodeFont: 'Space Mono, monospace',
+};
+
+// ══════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════
+function showToast(msg, duration = 2000) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove('visible'), duration);
+}
+const isMobile = () => window.innerWidth <= 700;
+
+// ══════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════
+const CONFIG = {
+  steps: 16, connectorRadius: 20, lineWidth: 20, elementRadius: 64,
+  junctionInnerRadius: 24, shootLength: 50, gridSpacing: 45, tolerance: 15,
+  zoomFactor: 0.1, minScale: 0.2, maxScale: 3, doubleClickTime: 300, longPressTime: 500
+};
+
+const ELEMENT_TYPES = {
+  'not/nor': { hasOutput: true, hasInput: true, color: '#482868', label: 'NOT', rotateText: true },
+  'LED': { hasOutput: false, hasInput: true, color: '#483828', label: 'LED', rotateText: false },
+  'SWITCH': { hasOutput: true, hasInput: false, color: '#234860', label: 'SW', rotateText: false },
+  'JUNCTION': { hasOutput: false, hasInput: false, isJunction: true, color: '#354048', label: 'JCT', rotateText: false },
+  'DIODE': { hasOutput: true, hasInput: true, color: '#385060', label: 'DIO', rotateText: true }
+};
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+const state = {
+  elements: [], connections: [],
+  drawing: { active: false, startEl: null, startType: null },
+  dragging: { element: null, background: false, offsetX: 0, offsetY: 0, startPos: null },
+  transform: { scale: 1, offset: { x: 0, y: 0 } },
+  mouse: { pos: null, dragStart: { x: 0, y: 0 }, offsetStart: { x: 0, y: 0 } },
+  lastClick: { time: 0, target: null },
+  signals: new Map(),
+  selectedToolType: null,
+  gridSnap: false,
+  touch: { lastDist: 0, longPressTimer: null, startTime: 0, startPos: null, moved: false, twoFingerTapped: false }
+};
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function snapToGrid(val) {
+  return Math.round(val / CONFIG.gridSpacing) * CONFIG.gridSpacing;
+}
+function maybeSnap(x, y) {
+  if (!state.gridSnap) return { x, y };
+  return { x: snapToGrid(x), y: snapToGrid(y) };
+}
+
+function getToolbarHeight() { return isMobile() ? 48 : 100; }
+function getBottomBarHeight() { return isMobile() ? 68 : 0; }
+function resizeCanvas() {
+  const tbH = getToolbarHeight(), bbH = getBottomBarHeight();
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight - tbH - bbH;
+  canvas.style.marginTop = tbH + 'px';
+  draw();
+}
+
+const transformUtil = {
+  screenToWorld: (x, y) => ({ x: (x - state.transform.offset.x) / state.transform.scale, y: (y - state.transform.offset.y) / state.transform.scale }),
+  worldToScreen: (x, y) => ({ x: x * state.transform.scale + state.transform.offset.x, y: y * state.transform.scale + state.transform.offset.y })
+};
+
+const geometry = {
+  distance: (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y),
+  isPointInCircle: (point, center, radius) => geometry.distance(point, center) <= radius,
+  getConnectorPos: (el, type) => {
+    const r = CONFIG.elementRadius - CONFIG.connectorRadius;
+    const angle = (el.rotation / CONFIG.steps) * 2 * Math.PI;
+    const m = type === 'output' ? 1 : -1;
+    return { x: el.x + m * r * Math.cos(angle), y: el.y + m * r * Math.sin(angle) };
+  },
+  getBezierPoint: (t, s, c1, c2, e) => ({
+    x: (1-t)**3*s.x+3*(1-t)**2*t*c1.x+3*(1-t)*t**2*c2.x+t**3*e.x,
+    y: (1-t)**3*s.y+3*(1-t)**2*t*c1.y+3*(1-t)*t**2*c2.y+t**3*e.y
+  }),
+  isPointOnBezier: (pt, s, c1, c2, e) => {
+    for (let t = 0; t <= 1; t += 0.05) if (geometry.distance(pt, geometry.getBezierPoint(t, s, c1, c2, e)) <= CONFIG.tolerance) return true;
+    return false;
+  }
+};
+
+// ══════════════════════════════════════════
+// CONNECTIONS
+// ══════════════════════════════════════════
+const connections = {
+  exists: (a, at, b, bt) => state.connections.some(c =>
+    (c.startEl===a&&c.startType===at&&c.endEl===b&&c.endType===bt)||(c.startEl===b&&c.startType===bt&&c.endEl===a&&c.endType===at)),
+  add: (sE, sT, eE, eT) => { if (sE===eE) return; if (!connections.exists(sE,sT,eE,eT)) { state.connections.push({startEl:sE,startType:sT,endEl:eE,endType:eT}); signals.propagate(); } },
+  remove: (c) => { const i=state.connections.indexOf(c); if(i>-1){state.connections.splice(i,1);signals.propagate();} },
+  removeByElement: (el) => state.connections.filter(c=>c.startEl===el||c.endEl===el).forEach(c=>connections.remove(c)),
+  getUnderMouse: (wp) => {
+    for (const c of state.connections) {
+      const s=c.startEl.type==='JUNCTION'?{x:c.startEl.x,y:c.startEl.y}:geometry.getConnectorPos(c.startEl,c.startType);
+      const e=c.endEl.type==='JUNCTION'?{x:c.endEl.x,y:c.endEl.y}:geometry.getConnectorPos(c.endEl,c.endType);
+      const{cp1,cp2}=connections.getControlPoints(c,s,e);
+      if(geometry.isPointOnBezier(wp,s,cp1,cp2,e)) return c;
+    } return null;
+  },
+  getControlPoints: (conn, s, e) => {
+    const sd=conn.startEl.type==='JUNCTION'?{x:e.x-s.x,y:e.y-s.y}:{x:s.x-conn.startEl.x,y:s.y-conn.startEl.y};
+    const ed=conn.endEl.type==='JUNCTION'?{x:s.x-e.x,y:s.y-e.y}:{x:e.x-conn.endEl.x,y:e.y-conn.endEl.y};
+    const sl=Math.hypot(sd.x,sd.y), el=Math.hypot(ed.x,ed.y);
+    const ss=conn.startShootLength||CONFIG.shootLength, es=conn.endShootLength||CONFIG.shootLength;
+    return {
+      cp1:{x:s.x+(sl>0?sd.x/sl*ss:0),y:s.y+(sl>0?sd.y/sl*ss:0)},
+      cp2:{x:e.x+(el>0?ed.x/el*es:0),y:e.y+(el>0?ed.y/el*es:0)}
+    };
+  }
+};
+
+// ══════════════════════════════════════════
+// SIGNALS
+// ══════════════════════════════════════════
+const signals = {
+  getConnectorKey: (el, ct) => `${el.id}-${ct}`,
+  isConnectorActive: (el, ct) => state.signals.has(signals.getConnectorKey(el, ct)),
+  setConnectorActive: (el, ct, a) => { const k=signals.getConnectorKey(el,ct); if(a) state.signals.set(k,true); else state.signals.delete(k); },
+  propagate: () => {
+    for (let pass=0;pass<100;pass++) {
+      const prev=new Map(state.signals); state.signals.clear();
+      state.elements.forEach(el=>{if(el.type==='SWITCH'&&el.active) signals.setConnectorActive(el,'output',true);});
+      state.elements.forEach(el=>{
+        if(el.type==='not/nor') signals.setConnectorActive(el,'output',!prev.has(signals.getConnectorKey(el,'input')));
+        if(el.type==='DIODE'&&prev.has(signals.getConnectorKey(el,'input'))) signals.setConnectorActive(el,'output',true);
+      });
+      let ch=true,it=0;
+      while(ch&&it<100){ch=false;it++;state.connections.forEach(cn=>{
+        const sA=cn.startEl.type==='JUNCTION'?signals.isConnectorActive(cn.startEl,'junction'):signals.isConnectorActive(cn.startEl,cn.startType);
+        const eA=cn.endEl.type==='JUNCTION'?signals.isConnectorActive(cn.endEl,'junction'):signals.isConnectorActive(cn.endEl,cn.endType);
+        let f=false,r=false;
+        if(cn.startEl.type==='JUNCTION'&&cn.endEl.type==='JUNCTION'){f=sA&&!eA;r=eA&&!sA;}
+        else if(cn.startEl.type==='JUNCTION'){if(cn.endType==='input'||cn.endType==='junction')f=sA&&!eA;if(cn.endType==='output')r=eA&&!sA;}
+        else if(cn.endEl.type==='JUNCTION'){if(cn.startType==='output')f=sA&&!eA;if(cn.startType==='input')r=eA&&!sA;}
+        else{if(cn.startType==='output'&&cn.endType==='input')f=sA&&!eA;else if(cn.startType==='input'&&cn.endType==='output')r=eA&&!sA;}
+        if(f){signals.setConnectorActive(cn.endEl,cn.endEl.type==='JUNCTION'?'junction':cn.endType,true);ch=true;}
+        if(r){signals.setConnectorActive(cn.startEl,cn.startEl.type==='JUNCTION'?'junction':cn.startType,true);ch=true;}
+      });}
+      if(prev.size===state.signals.size){let st=true;for(const k of state.signals.keys())if(!prev.has(k)){st=false;break;}if(st)break;}
+    }
+  },
+  toggleSwitch: (el) => { if(el.type==='SWITCH'){el.active=!el.active;signals.propagate();} }
+};
+
+// ══════════════════════════════════════════
+// NODE RENDERING — the heart of the restyle
+// ══════════════════════════════════════════
+const nodeRenderer = {
+  // Gradient helper
+  circGrad: (cx, cy, r, stops) => {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    stops.forEach(([offset, color]) => g.addColorStop(offset, color));
+    return g;
+  },
+
+  // Draw a styled ring border
+  ring: (x, y, r, width, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
+  },
+
+  // Draw notch marks around a node
+  notches: (x, y, r, count, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 / state.transform.scale;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      const inner = r - 4/state.transform.scale;
+      const outer = r + 1/state.transform.scale;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a)*inner, y + Math.sin(a)*inner);
+      ctx.lineTo(x + Math.cos(a)*outer, y + Math.sin(a)*outer);
+      ctx.stroke();
+    }
+  },
+
+  // Connector (input/output port) — modern metallic look
+  connector: (elX, elY, angle, radius, active, clipR) => {
+    const px = elX + Math.cos(angle) * (CONFIG.elementRadius - CONFIG.connectorRadius);
+    const py = elY + Math.sin(angle) * (CONFIG.elementRadius - CONFIG.connectorRadius);
+    
+    ctx.save();
+    if (!state.drawing.active) {
+      ctx.beginPath(); ctx.arc(elX, elY, clipR, 0, Math.PI*2); ctx.clip();
+    }
+    
+    // Glow behind when active
+    if (active) {
+      ctx.save();
+      ctx.shadowColor = THEME.connectorActiveGlow;
+      ctx.shadowBlur = 14 / state.transform.scale;
+      ctx.fillStyle = THEME.connectorActive;
+      ctx.beginPath(); ctx.arc(px, py, CONFIG.connectorRadius, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+      // Bright center dot
+      const cg = nodeRenderer.circGrad(px, py, CONFIG.connectorRadius, [
+        [0, THEME.signal_bright || '#ffe080'],
+        [0.4, THEME.connectorActive],
+        [1, 'rgba(200,140,30,0.6)']
+      ]);
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(px, py, CONFIG.connectorRadius, 0, Math.PI*2); ctx.fill();
+    } else {
+      // Inactive — subtle bevel
+      const cg = nodeRenderer.circGrad(px, py, CONFIG.connectorRadius, [
+        [0, THEME.connectorInactiveLight],
+        [1, THEME.connectorInactive]
+      ]);
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(px, py, CONFIG.connectorRadius, 0, Math.PI*2); ctx.fill();
+      // Inner shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.arc(px, py, CONFIG.connectorRadius*0.65, 0, Math.PI*2); ctx.fill();
+    }
+    
+    ctx.restore();
+  },
+
+  // Main node body
+  drawNode: (el) => {
+    const tc = ELEMENT_TYPES[el.type];
+    const tn = THEME.nodes[el.type];
+    const R = CONFIG.elementRadius - CONFIG.connectorRadius;
+    const s = state.transform.scale;
+    const fs = (px) => px / s;
+
+    // ── JUNCTION ──
+    if (el.type === 'JUNCTION') {
+      const jA = signals.isConnectorActive(el, 'junction');
+      const bodyStops = jA ? tn.bodyOn : tn.bodyOff;
+      const innerStops = tn.inner;
+      
+      // Outer glow when active
+      if (jA) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(240,192,80,0.35)';
+        ctx.shadowBlur = fs(20);
+        ctx.fillStyle = 'rgba(200,160,60,0.15)';
+        ctx.beginPath(); ctx.arc(el.x, el.y, R+fs(4), 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+      
+      // Outer ring
+      const og = nodeRenderer.circGrad(el.x, el.y, R, [[0, bodyStops[1]], [1, bodyStops[0]]]);
+      ctx.fillStyle = og;
+      ctx.beginPath(); ctx.arc(el.x, el.y, R, 0, Math.PI*2); ctx.fill();
+      
+      // Ring border
+      nodeRenderer.ring(el.x, el.y, R, fs(2), 'rgba(255,255,255,0.06)');
+      nodeRenderer.notches(el.x, el.y, R, 12, jA ? 'rgba(240,200,80,0.3)' : 'rgba(255,255,255,0.06)');
+      
+      // Inner circle — always same color
+      const ig = nodeRenderer.circGrad(el.x, el.y, CONFIG.junctionInnerRadius, [[0, innerStops[1]], [1, innerStops[0]]]);
+      ctx.fillStyle = ig;
+      ctx.beginPath(); ctx.arc(el.x, el.y, CONFIG.junctionInnerRadius, 0, Math.PI*2); ctx.fill();
+      nodeRenderer.ring(el.x, el.y, CONFIG.junctionInnerRadius, fs(1.5), 'rgba(255,255,255,0.08)');
+      
+      // Center dot — always same color
+      ctx.fillStyle = 'rgba(80,100,120,0.6)';
+      ctx.beginPath(); ctx.arc(el.x, el.y, fs(5), 0, Math.PI*2); ctx.fill();
+      return;
+    }
+
+    // ── REGULAR NODES ──
+    const isSwitch = el.type === 'SWITCH';
+    const isLED = el.type === 'LED';
+    const switchOn = isSwitch && el.active;
+    const ledOn = isLED && signals.isConnectorActive(el, 'input');
+
+    // Outer glow — LED only
+    if (ledOn) {
+      ctx.save();
+      ctx.shadowColor = '#ffe040';
+      ctx.shadowBlur = fs(50);
+      ctx.fillStyle = 'rgba(255,224,64,0.3)';
+      ctx.beginPath(); ctx.arc(el.x, el.y, R + fs(14), 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,240,100,0.15)';
+      ctx.beginPath(); ctx.arc(el.x, el.y, R + fs(30), 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    
+    // Body gradient
+    let bodyStops;
+    if (isSwitch) bodyStops = switchOn ? tn.bodyOn : tn.bodyOff;
+    else if (isLED) bodyStops = ledOn ? tn.bodyOn : tn.bodyOff;
+    else bodyStops = tn.body;
+    
+    const bg = nodeRenderer.circGrad(el.x - fs(8), el.y - fs(8), R * 1.4, [
+      [0, bodyStops[1]],
+      [0.7, bodyStops[0]],
+      [1, bodyStops[0]]
+    ]);
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.arc(el.x, el.y, R, 0, Math.PI*2); ctx.fill();
+    
+    // Inner shadow (bottom-right)
+    const innerShadow = ctx.createRadialGradient(el.x + fs(10), el.y + fs(12), 0, el.x, el.y, R);
+    innerShadow.addColorStop(0, 'rgba(0,0,0,0.3)');
+    innerShadow.addColorStop(0.7, 'rgba(0,0,0,0.05)');
+    innerShadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = innerShadow;
+    ctx.beginPath(); ctx.arc(el.x, el.y, R, 0, Math.PI*2); ctx.fill();
+    
+    // Top-left highlight
+    const hlGrad = ctx.createRadialGradient(el.x - fs(14), el.y - fs(14), 0, el.x, el.y, R);
+    hlGrad.addColorStop(0, 'rgba(255,255,255,0.08)');
+    hlGrad.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+    hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hlGrad;
+    ctx.beginPath(); ctx.arc(el.x, el.y, R, 0, Math.PI*2); ctx.fill();
+    
+    // Ring border + notches
+    const ringColor = ledOn ? 'rgba(255,240,100,0.2)' : 'rgba(255,255,255,0.05)';
+    nodeRenderer.ring(el.x, el.y, R, fs(2), ringColor);
+    nodeRenderer.notches(el.x, el.y, R, 16, ledOn ? 'rgba(255,240,100,0.15)' : 'rgba(255,255,255,0.04)');
+    
+    // Inner ring detail
+    nodeRenderer.ring(el.x, el.y, R * 0.55, fs(1), 'rgba(255,255,255,0.04)');
+    
+    // LED extra glow layers
+    if (ledOn) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const ledG = nodeRenderer.circGrad(el.x, el.y, R * 1.2, [
+        [0, 'rgba(255,240,80,0.5)'],
+        [0.3, 'rgba(255,220,40,0.2)'],
+        [0.7, 'rgba(255,200,20,0.06)'],
+        [1, 'rgba(255,200,20,0)']
+      ]);
+      ctx.fillStyle = ledG;
+      ctx.beginPath(); ctx.arc(el.x, el.y, R * 1.2, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    
+    // Switch indicator bar
+    if (isSwitch) {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(el.x, el.y, R, 0, Math.PI*2); ctx.clip();
+      const barY = switchOn ? el.y - fs(10) : el.y + fs(10);
+      ctx.fillStyle = switchOn ? 'rgba(48,192,240,0.25)' : 'rgba(255,255,255,0.04)';
+      ctx.fillRect(el.x - fs(16), barY, fs(32), fs(4));
+      ctx.restore();
+    }
+    
+    // Symbol / label
+    ctx.save();
+    const labelColor = (switchOn && tn.labelOn) ? tn.labelOn : (ledOn && tn.labelOn) ? tn.labelOn : tn.label;
+    ctx.fillStyle = labelColor;
+    ctx.font = `bold ${fs(13)}px ${THEME.nodeFont}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    
+    if (tc.rotateText) {
+      ctx.translate(el.x, el.y);
+      ctx.rotate((el.rotation / CONFIG.steps) * 2 * Math.PI);
+      ctx.fillText(tn.symbol, 0, 0);
+    } else {
+      ctx.fillText(tn.symbol, el.x, el.y);
+    }
+    ctx.restore();
+    
+    // Draw connectors
+    const angle = el.rotation / CONFIG.steps * 2 * Math.PI;
+    if (tc.hasOutput) {
+      nodeRenderer.connector(el.x, el.y, angle, CONFIG.connectorRadius, signals.isConnectorActive(el, 'output'), R);
+    }
+    if (tc.hasInput) {
+      nodeRenderer.connector(el.x, el.y, Math.PI + angle, CONFIG.connectorRadius, signals.isConnectorActive(el, 'input'), R);
+    }
+  }
+};
+
+// ══════════════════════════════════════════
+// DRAWING (background, wires, etc.)
+// ══════════════════════════════════════════
+const drawing = {
+  background: () => {
+    const { scale, offset } = state.transform;
+    const wL = -offset.x/scale, wT = -offset.y/scale;
+    const wR = wL + canvas.width/scale, wB = wT + canvas.height/scale;
+    const sp = CONFIG.gridSpacing;
+    const gL = Math.floor(wL/sp)*sp, gT = Math.floor(wT/sp)*sp;
+    
+    // Cross-hair grid lines (very subtle)
+    ctx.strokeStyle = THEME.gridCross;
+    ctx.lineWidth = 0.5 / scale;
+    for (let x = gL; x <= wR; x += sp) {
+      ctx.beginPath(); ctx.moveTo(x, wT); ctx.lineTo(x, wB); ctx.stroke();
+    }
+    for (let y = gT; y <= wB; y += sp) {
+      ctx.beginPath(); ctx.moveTo(wL, y); ctx.lineTo(wR, y); ctx.stroke();
+    }
+    
+    // Grid intersection dots
+    ctx.fillStyle = THEME.gridDot;
+    for (let x = gL; x <= wR; x += sp)
+      for (let y = gT; y <= wB; y += sp) {
+        ctx.beginPath(); ctx.arc(x, y, 2/scale, 0, Math.PI*2); ctx.fill();
+      }
+  },
+
+  connections: () => {
+    // Pre-compute active state for sorting: draw inactive first, active on top
+    const withActive = state.connections.map(c => {
+      const sA = c.startEl.type==='JUNCTION'?signals.isConnectorActive(c.startEl,'junction'):signals.isConnectorActive(c.startEl,c.startType);
+      const eA = c.endEl.type==='JUNCTION'?signals.isConnectorActive(c.endEl,'junction'):signals.isConnectorActive(c.endEl,c.endType);
+      let wA = false;
+      if(c.startEl.type==='JUNCTION'&&c.endEl.type==='JUNCTION') wA=sA||eA;
+      else if(c.startEl.type==='JUNCTION') wA=c.endType==='input'?sA:eA;
+      else if(c.endEl.type==='JUNCTION') wA=c.startType==='output'?sA:eA;
+      else{if(c.startType==='output'&&c.endType==='input')wA=sA;else if(c.startType==='input'&&c.endType==='output')wA=eA;}
+      return {c, wA};
+    });
+    withActive.sort((a,b) => (a.wA?1:0)-(b.wA?1:0));
+    
+    withActive.forEach(({c, wA}) => {
+      const s = c.startEl.type==='JUNCTION'?{x:c.startEl.x,y:c.startEl.y}:geometry.getConnectorPos(c.startEl,c.startType);
+      const e = c.endEl.type==='JUNCTION'?{x:c.endEl.x,y:c.endEl.y}:geometry.getConnectorPos(c.endEl,c.endType);
+      const{cp1,cp2} = connections.getControlPoints(c,s,e);
+      
+      // Wire outer (border)
+      ctx.strokeStyle = wA ? 'rgba(200,160,40,0.2)' : 'rgba(30,40,55,0.8)';
+      ctx.lineWidth = CONFIG.lineWidth + 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(cp1.x,cp1.y,cp2.x,cp2.y,e.x,e.y); ctx.stroke();
+      
+      // Wire glow
+      if (wA) {
+        ctx.save();
+        ctx.shadowColor = THEME.wireActiveFaint;
+        ctx.shadowBlur = 12 / state.transform.scale;
+        ctx.strokeStyle = THEME.wireActive;
+        ctx.lineWidth = CONFIG.lineWidth;
+        ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(cp1.x,cp1.y,cp2.x,cp2.y,e.x,e.y); ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.strokeStyle = THEME.wireInactive;
+        ctx.lineWidth = CONFIG.lineWidth;
+        ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(cp1.x,cp1.y,cp2.x,cp2.y,e.x,e.y); ctx.stroke();
+        // Inner highlight
+        ctx.strokeStyle = THEME.wireInactiveStroke;
+        ctx.lineWidth = CONFIG.lineWidth * 0.4;
+        ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(cp1.x,cp1.y,cp2.x,cp2.y,e.x,e.y); ctx.stroke();
+      }
+    });
+  },
+
+  elements: () => { state.elements.forEach(el => nodeRenderer.drawNode(el)); },
+
+  currentLine: () => {
+    if(!state.drawing.active||!state.mouse.pos) return;
+    const s = state.drawing.startType==='junction'?{x:state.drawing.startEl.x,y:state.drawing.startEl.y}:geometry.getConnectorPos(state.drawing.startEl,state.drawing.startType);
+    const mw = transformUtil.screenToWorld(state.mouse.pos.x,state.mouse.pos.y);
+    let sd = state.drawing.startEl.type==='JUNCTION'?{x:mw.x-s.x,y:mw.y-s.y}:{x:s.x-state.drawing.startEl.x,y:s.y-state.drawing.startEl.y};
+    const sl = Math.hypot(sd.x,sd.y);
+    const c1 = {x:s.x+(sl>0?sd.x/sl*CONFIG.shootLength:0),y:s.y+(sl>0?sd.y/sl*CONFIG.shootLength:0)};
+    const c2 = {x:s.x+(mw.x-s.x)/2,y:s.y+(mw.y-s.y)/2};
+    // Outer
+    ctx.strokeStyle = 'rgba(232,168,56,0.15)';
+    ctx.lineWidth = CONFIG.lineWidth + 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,mw.x,mw.y); ctx.stroke();
+    // Inner
+    ctx.strokeStyle = THEME.wireDrawing;
+    ctx.lineWidth = CONFIG.lineWidth;
+    ctx.setLineDash([8/state.transform.scale, 6/state.transform.scale]);
+    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,mw.x,mw.y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+};
+
+function draw() {
+  const{scale,offset}=state.transform;
+  ctx.setTransform(scale,0,0,scale,offset.x,offset.y);
+  // BG fill
+  ctx.fillStyle = THEME.bgCanvas;
+  ctx.fillRect(-offset.x/scale,-offset.y/scale,canvas.width/scale,canvas.height/scale);
+  drawing.background();
+  drawing.connections();
+  drawing.elements();
+  drawing.currentLine();
+}
+
+// ══════════════════════════════════════════
+// INPUT HELPERS
+// ══════════════════════════════════════════
+const inputHelper = {
+  getMousePos: (e) => { const r=canvas.getBoundingClientRect(); return{x:e.clientX-r.left,y:e.clientY-r.top}; },
+  getTouchPos: (t) => { const r=canvas.getBoundingClientRect(); return{x:t.clientX-r.left,y:t.clientY-r.top}; },
+  getElementUnderMouse: (wp, forDrag=false) => {
+    for(const el of state.elements){
+      if(el.type==='JUNCTION'&&forDrag){if(geometry.isPointInCircle(wp,el,CONFIG.junctionInnerRadius))return el;}
+      else if(el.type!=='JUNCTION'){if(geometry.isPointInCircle(wp,el,CONFIG.elementRadius-CONFIG.connectorRadius))return el;}
+    } return null;
+  },
+  getJunctionRing: (wp) => {
+    for(const el of state.elements){
+      if(el.type==='JUNCTION'){const oR=CONFIG.elementRadius-CONFIG.connectorRadius;const d=geometry.distance(wp,el);if(d<=oR&&d>CONFIG.junctionInnerRadius)return el;}
+    } return null;
+  },
+  getConnectorUnderMouse: (wp) => {
+    const jr=inputHelper.getJunctionRing(wp);if(jr)return{el:jr,type:'junction'};
+    for(const el of state.elements){const tc=ELEMENT_TYPES[el.type];
+      if(tc.hasOutput){const o=geometry.getConnectorPos(el,'output');if(geometry.isPointInCircle(wp,o,CONFIG.connectorRadius))return{el,type:'output'};}
+      if(tc.hasInput){const i=geometry.getConnectorPos(el,'input');if(geometry.isPointInCircle(wp,i,CONFIG.connectorRadius))return{el,type:'input'};}
+    } return null;
+  },
+  getFullElementAt: (wp) => {
+    for(const el of state.elements){const r=CONFIG.elementRadius-CONFIG.connectorRadius;if(geometry.isPointInCircle(wp,el,r))return el;} return null;
+  }
+};
+
+// ══════════════════════════════════════════
+// MOUSE EVENTS
+// ══════════════════════════════════════════
+canvas.addEventListener('mousemove', e => {
+  const pos=inputHelper.getMousePos(e); state.mouse.pos=pos;
+  const wp=transformUtil.screenToWorld(pos.x,pos.y);
+  if(state.dragging.background){state.transform.offset.x=state.mouse.offsetStart.x+(pos.x-state.mouse.dragStart.x);state.transform.offset.y=state.mouse.offsetStart.y+(pos.y-state.mouse.dragStart.y);draw();return;}
+  if(state.dragging.element){const snp=maybeSnap(wp.x-state.dragging.offsetX,wp.y-state.dragging.offsetY);state.dragging.element.x=snp.x;state.dragging.element.y=snp.y;}
+  const cn=inputHelper.getConnectorUnderMouse(wp);
+  if(cn)canvas.style.cursor='pointer';else if(inputHelper.getElementUnderMouse(wp,true))canvas.style.cursor='grab';
+  else if(connections.getUnderMouse(wp))canvas.style.cursor='ew-resize';else canvas.style.cursor=state.dragging.element?'grabbing':'default';
+  draw();
+});
+
+canvas.addEventListener('mousedown', e => {
+  const pos=inputHelper.getMousePos(e),wp=transformUtil.screenToWorld(pos.x,pos.y),now=Date.now();
+  state.dragging.startPos={...wp};const isD=now-state.lastClick.time<CONFIG.doubleClickTime;
+  const conn=connections.getUnderMouse(wp);if(conn&&isD){connections.remove(conn);draw();return;}
+  let el=inputHelper.getFullElementAt(wp);
+  if(el&&isD&&state.lastClick.target===el){connections.removeByElement(el);const i=state.elements.indexOf(el);if(i>-1)state.elements.splice(i,1);draw();return;}
+  state.lastClick.time=now;state.lastClick.target=el;
+  const cn=inputHelper.getConnectorUnderMouse(wp);if(cn){state.drawing.active=true;state.drawing.startEl=cn.el;state.drawing.startType=cn.type;return;}
+  el=inputHelper.getElementUnderMouse(wp,true);if(el){state.dragging.element=el;state.dragging.offsetX=wp.x-el.x;state.dragging.offsetY=wp.y-el.y;return;}
+  state.dragging.background=true;state.mouse.dragStart=pos;state.mouse.offsetStart={...state.transform.offset};
+});
+
+canvas.addEventListener('mouseup', e => {
+  const pos=inputHelper.getMousePos(e),wp=transformUtil.screenToWorld(pos.x,pos.y);
+  if(state.dragging.background)state.dragging.background=false;
+  if(state.dragging.element&&state.dragging.element.type==='SWITCH'){const d=Math.hypot(wp.x-(state.dragging.startPos?.x||0),wp.y-(state.dragging.startPos?.y||0));if(d<5)signals.toggleSwitch(state.dragging.element);}
+  if(state.drawing.active){const cn=inputHelper.getConnectorUnderMouse(wp);const jt=state.elements.find(el=>el.type==='JUNCTION'&&geometry.isPointInCircle(wp,el,CONFIG.elementRadius-CONFIG.connectorRadius));
+    if(cn)connections.add(state.drawing.startEl,state.drawing.startType,cn.el,cn.type);else if(jt)connections.add(state.drawing.startEl,state.drawing.startType,jt,'junction');}
+  resetInteraction();draw();
+});
+canvas.addEventListener('mouseleave', () => { resetInteraction();draw(); });
+canvas.addEventListener('wheel', e => {
+  const pos=inputHelper.getMousePos(e),wp=transformUtil.screenToWorld(pos.x,pos.y);
+  const el=inputHelper.getFullElementAt(wp);
+  if(el&&el.type!=='JUNCTION'){el.rotation+=e.deltaY>0?1:-1;if(el.rotation<0)el.rotation+=CONFIG.steps;if(el.rotation>=CONFIG.steps)el.rotation-=CONFIG.steps;}
+  else{const cn=connections.getUnderMouse(wp);if(cn){const d=e.deltaY>0?-20:20;cn.startShootLength=Math.max(20,Math.min(500,(cn.startShootLength||CONFIG.shootLength)+d));cn.endShootLength=Math.max(20,Math.min(500,(cn.endShootLength||CONFIG.shootLength)+d));}
+  else{const f=e.deltaY>0?(1-CONFIG.zoomFactor):(1+CONFIG.zoomFactor);const wb=wp;state.transform.scale=Math.max(CONFIG.minScale,Math.min(CONFIG.maxScale,state.transform.scale*f));const wa=transformUtil.screenToWorld(pos.x,pos.y);state.transform.offset.x+=(wa.x-wb.x)*state.transform.scale;state.transform.offset.y+=(wa.y-wb.y)*state.transform.scale;}}
+  draw();e.preventDefault();
+}, {passive:false});
+
+// ══════════════════════════════════════════
+// TOUCH EVENTS
+// ══════════════════════════════════════════
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();const ts=e.touches;
+  if(ts.length===2){state.touch.lastDist=Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);state.touch.twoFingerTapped=true;clearTimeout(state.touch.longPressTimer);return;}
+  if(ts.length!==1)return;
+  const pos=inputHelper.getTouchPos(ts[0]);state.mouse.pos=pos;const wp=transformUtil.screenToWorld(pos.x,pos.y);
+  state.touch.startTime=Date.now();state.touch.startPos={...pos};state.touch.moved=false;
+  state.touch.longPressTimer=setTimeout(()=>{
+    if(state.touch.moved)return;const w=transformUtil.screenToWorld(pos.x,pos.y);
+    const el2=inputHelper.getFullElementAt(w);if(el2){connections.removeByElement(el2);const i=state.elements.indexOf(el2);if(i>-1)state.elements.splice(i,1);showToast('Deleted '+el2.type);Object.assign(state.dragging,{element:null,background:false});Object.assign(state.drawing,{active:false,startEl:null,startType:null});draw();return;}
+    const cn2=connections.getUnderMouse(w);if(cn2){connections.remove(cn2);showToast('Wire deleted');draw();}
+  },CONFIG.longPressTime);
+  const cn=inputHelper.getConnectorUnderMouse(wp);if(cn){state.drawing.active=true;state.drawing.startEl=cn.el;state.drawing.startType=cn.type;return;}
+  const el=inputHelper.getElementUnderMouse(wp,true);if(el){state.dragging.element=el;state.dragging.offsetX=wp.x-el.x;state.dragging.offsetY=wp.y-el.y;state.dragging.startPos={...wp};return;}
+  if(state.selectedToolType){addElementAt(state.selectedToolType,ts[0].clientX,ts[0].clientY);showToast('Placed '+state.selectedToolType);return;}
+  state.dragging.background=true;state.mouse.dragStart=pos;state.mouse.offsetStart={...state.transform.offset};
+},{passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();const ts=e.touches;
+  if(ts.length===2){const d=Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);if(state.touch.lastDist>0){const mx=(ts[0].clientX+ts[1].clientX)/2,my=(ts[0].clientY+ts[1].clientY)/2;const r=canvas.getBoundingClientRect();const px=mx-r.left,py=my-r.top;const f=d/state.touch.lastDist;const wb=transformUtil.screenToWorld(px,py);state.transform.scale=Math.max(CONFIG.minScale,Math.min(CONFIG.maxScale,state.transform.scale*f));const wa=transformUtil.screenToWorld(px,py);state.transform.offset.x+=(wa.x-wb.x)*state.transform.scale;state.transform.offset.y+=(wa.y-wb.y)*state.transform.scale;}state.touch.lastDist=d;draw();return;}
+  if(ts.length!==1)return;const pos=inputHelper.getTouchPos(ts[0]);state.mouse.pos=pos;
+  const md=Math.hypot(pos.x-(state.touch.startPos?.x||0),pos.y-(state.touch.startPos?.y||0));if(md>10){state.touch.moved=true;clearTimeout(state.touch.longPressTimer);}
+  const wp=transformUtil.screenToWorld(pos.x,pos.y);
+  if(state.dragging.background){state.transform.offset.x=state.mouse.offsetStart.x+(pos.x-state.mouse.dragStart.x);state.transform.offset.y=state.mouse.offsetStart.y+(pos.y-state.mouse.dragStart.y);draw();return;}
+  if(state.dragging.element){const snp=maybeSnap(wp.x-state.dragging.offsetX,wp.y-state.dragging.offsetY);state.dragging.element.x=snp.x;state.dragging.element.y=snp.y;}draw();
+},{passive:false});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();clearTimeout(state.touch.longPressTimer);
+  if(state.touch.twoFingerTapped&&!state.touch.moved&&e.touches.length===0){if(state.touch.startPos){const wp=transformUtil.screenToWorld(state.touch.startPos.x,state.touch.startPos.y);const el=inputHelper.getFullElementAt(wp);if(el&&el.type!=='JUNCTION'){el.rotation=(el.rotation+1)%CONFIG.steps;signals.propagate();showToast('Rotated');}}state.touch.twoFingerTapped=false;state.touch.lastDist=0;draw();return;}
+  if(e.touches.length>0){state.touch.lastDist=0;return;}state.touch.twoFingerTapped=false;state.touch.lastDist=0;
+  const pos=state.mouse.pos||state.touch.startPos;if(!pos){resetInteraction();draw();return;}const wp=transformUtil.screenToWorld(pos.x,pos.y);
+  if(state.dragging.element&&state.dragging.element.type==='SWITCH'&&!state.touch.moved){const d=state.dragging.startPos?Math.hypot(wp.x-state.dragging.startPos.x,wp.y-state.dragging.startPos.y):0;if(d<10)signals.toggleSwitch(state.dragging.element);}
+  if(state.drawing.active){const cn=inputHelper.getConnectorUnderMouse(wp);const jt=state.elements.find(el=>el.type==='JUNCTION'&&geometry.isPointInCircle(wp,el,CONFIG.elementRadius-CONFIG.connectorRadius));if(cn)connections.add(state.drawing.startEl,state.drawing.startType,cn.el,cn.type);else if(jt)connections.add(state.drawing.startEl,state.drawing.startType,jt,'junction');}
+  resetInteraction();draw();
+},{passive:false});
+
+function resetInteraction() {
+  Object.assign(state.drawing,{active:false,startEl:null,startType:null});
+  Object.assign(state.dragging,{element:null,background:false,offsetX:0,offsetY:0,startPos:null});
+  state.mouse.pos=null;
+}
+
+// ══════════════════════════════════════════
+// ADD ELEMENT + TOOLBAR
+// ══════════════════════════════════════════
+function addElementAt(type, sx, sy) {
+  const r=canvas.getBoundingClientRect();const wp0=transformUtil.screenToWorld(sx-r.left,sy-r.top);const wp=maybeSnap(wp0.x,wp0.y);
+  state.elements.push({x:wp.x,y:wp.y,rotation:0,type,id:Date.now()+Math.random(),active:false});
+  signals.propagate();draw();
+}
+
+(function initToolbarDrag() {
+  let ds=null;
+  document.querySelectorAll('header .toolbar-scroll .toolbar-item').forEach(item=>{
+    item.addEventListener('mousedown',e=>{
+      e.preventDefault();const type=item.dataset.type;
+      const ghost=document.createElement('div');ghost.className='drag-ghost';
+      const gc=document.createElement('canvas');gc.width=100;gc.height=100;ghost.appendChild(gc);document.body.appendChild(ghost);
+      // Draw ghost node
+      const g=gc.getContext('2d');const c=50,rr=38;const tn=THEME.nodes[type];const tc=ELEMENT_TYPES[type];
+      let bodyStops = tn.body || tn.bodyOff;
+      const bg=g.createRadialGradient(c-4,c-4,0,c,c,rr*1.4);bg.addColorStop(0,bodyStops[1]);bg.addColorStop(0.7,bodyStops[0]);bg.addColorStop(1,bodyStops[0]);
+      g.fillStyle=bg;g.beginPath();g.arc(c,c,rr,0,Math.PI*2);g.fill();
+      g.strokeStyle='rgba(255,255,255,0.08)';g.lineWidth=2;g.beginPath();g.arc(c,c,rr,0,Math.PI*2);g.stroke();
+      if(tc.hasOutput){g.fillStyle=THEME.connectorInactive;g.save();g.beginPath();g.arc(c,c,rr,0,Math.PI*2);g.clip();g.beginPath();g.arc(c+rr,c,16,0,Math.PI*2);g.fill();g.restore();}
+      if(tc.hasInput){g.fillStyle=THEME.connectorInactive;g.save();g.beginPath();g.arc(c,c,rr,0,Math.PI*2);g.clip();g.beginPath();g.arc(c-rr,c,16,0,Math.PI*2);g.fill();g.restore();}
+      if(type==='JUNCTION'){g.fillStyle=(tn.inner||tn.bodyOff)[1];g.beginPath();g.arc(c,c,rr*0.55,0,Math.PI*2);g.fill();}
+      g.fillStyle=tn.label||'#999';g.font=`bold 10px ${THEME.nodeFont}`;g.textAlign='center';g.textBaseline='middle';g.fillText(tn.symbol||tc.label,c,c);
+      ds={type,ghost};ghost.style.left=(e.clientX-50)+'px';ghost.style.top=(e.clientY-50)+'px';
+    });
+  });
+  document.addEventListener('mousemove',e=>{if(ds){ds.ghost.style.left=(e.clientX-50)+'px';ds.ghost.style.top=(e.clientY-50)+'px';}});
+  document.addEventListener('mouseup',e=>{if(!ds)return;const r=canvas.getBoundingClientRect();if(e.clientY>r.top&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY<=r.bottom)addElementAt(ds.type,e.clientX,e.clientY);ds.ghost.remove();ds=null;});
+})();
+
+function setupMobileToolbar() {
+  document.querySelectorAll('#mobile-bar .toolbar-item, header .toolbar-scroll .toolbar-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      if(!isMobile())return;e.stopPropagation();const type=item.dataset.type;
+      if(state.selectedToolType===type){state.selectedToolType=null;document.querySelectorAll('.toolbar-item').forEach(i=>i.classList.remove('selected'));document.getElementById('placement-indicator').style.display='none';}
+      else{state.selectedToolType=type;document.querySelectorAll('.toolbar-item').forEach(i=>i.classList.toggle('selected',i.dataset.type===type));document.getElementById('placement-indicator').style.display='block';document.getElementById('placement-indicator').textContent=`Tap to place ${type}`;}
+    });
+  });
+}
+
+// ══════════════════════════════════════════
+// TOOLBAR PREVIEWS — match new node style
+// ══════════════════════════════════════════
+function drawToolbarPreviews() {
+  document.querySelectorAll('.toolbar-item').forEach(item => {
+    const type = item.dataset.type;
+    const tc = ELEMENT_TYPES[type];
+    const tn = THEME.nodes[type];
+    const c = item.querySelector('canvas');
+    const g = c.getContext('2d');
+    const size = parseInt(c.width);
+    const r = size * 0.4;
+    const center = size / 2;
+    g.clearRect(0, 0, size, size);
+    
+    let bodyStops = tn.body || tn.bodyOff;
+    const bg = g.createRadialGradient(center-2, center-2, 0, center, center, r*1.3);
+    bg.addColorStop(0, bodyStops[1]); bg.addColorStop(1, bodyStops[0]);
+    g.fillStyle = bg;
+    g.beginPath(); g.arc(center, center, r, 0, Math.PI*2); g.fill();
+    
+    // Ring
+    g.strokeStyle = 'rgba(255,255,255,0.08)';
+    g.lineWidth = 1.2;
+    g.beginPath(); g.arc(center, center, r, 0, Math.PI*2); g.stroke();
+    
+    if (type === 'JUNCTION') {
+      const ig = g.createRadialGradient(center, center, 0, center, center, r*0.55);
+      ig.addColorStop(0, (tn.inner||tn.bodyOff)[1]); ig.addColorStop(1, (tn.inner||tn.bodyOff)[0]);
+      g.fillStyle = ig;
+      g.beginPath(); g.arc(center, center, r*0.55, 0, Math.PI*2); g.fill();
+    } else {
+      if (tc.hasOutput) {
+        g.fillStyle = THEME.connectorInactive;
+        g.save(); g.beginPath(); g.arc(center, center, r, 0, Math.PI*2); g.clip();
+        g.beginPath(); g.arc(center+r, center, r*0.45, 0, Math.PI*2); g.fill(); g.restore();
+      }
+      if (tc.hasInput) {
+        g.fillStyle = THEME.connectorInactive;
+        g.save(); g.beginPath(); g.arc(center, center, r, 0, Math.PI*2); g.clip();
+        g.beginPath(); g.arc(center-r, center, r*0.45, 0, Math.PI*2); g.fill(); g.restore();
+      }
+    }
+    
+    g.fillStyle = tn.label || '#888';
+    g.font = `bold ${size*0.18}px ${THEME.nodeFont}`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(tn.symbol || tc.label, center, center);
+  });
+}
+
+// ══════════════════════════════════════════
+// LOAD / EXPORT
+// ══════════════════════════════════════════
+function loadLayout(data) {
+  state.elements=[];state.connections=[];state.signals.clear();
+  if(data.elements) state.elements=data.elements.map(el=>({x:el.x||0,y:el.y||0,rotation:el.rotation||0,type:el.type||'not/nor',id:el.id||(Date.now()+Math.random()),active:el.active||false}));
+  if(data.connections) data.connections.forEach(c=>{const s=state.elements[c.startIndex],e=state.elements[c.endIndex];if(s&&e){const cn={startEl:s,startType:c.startType||'output',endEl:e,endType:c.endType||'input'};if(c.startShootLength!==undefined)cn.startShootLength=c.startShootLength;if(c.endShootLength!==undefined)cn.endShootLength=c.endShootLength;state.connections.push(cn);}});
+  resetInteraction();signals.propagate();draw();
+}
+function exportLayout() {
+  const d={elements:state.elements.map(el=>({x:el.x,y:el.y,rotation:el.rotation,type:el.type,id:el.id,active:el.active})),connections:state.connections.map(c=>({startIndex:state.elements.indexOf(c.startEl),startType:c.startType,endIndex:state.elements.indexOf(c.endEl),endType:c.endType,startShootLength:c.startShootLength,endShootLength:c.endShootLength}))};
+  const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);
+  Object.assign(document.createElement('a'),{href:u,download:`circuit_${new Date().toISOString().slice(2,16).replace('T','_').replace(':','-')}.json`}).click();URL.revokeObjectURL(u);showToast('Exported');
+}
+function getDemoLayout() {
+  return {elements:[
+    // Circuit 1: 2 switches → junction → LED
+    {x:150,y:120,rotation:0,type:'SWITCH',id:1,active:false},   // 0
+    {x:150,y:250,rotation:0,type:'SWITCH',id:2,active:false},   // 1
+    {x:350,y:185,rotation:0,type:'JUNCTION',id:3,active:false}, // 2
+    {x:550,y:185,rotation:0,type:'LED',id:4,active:false},      // 3
+
+    // Circuit 2: 1 switch → NOT → LED
+    {x:150,y:400,rotation:0,type:'SWITCH',id:5,active:false},   // 4
+    {x:350,y:400,rotation:0,type:'not/nor',id:6,active:false},  // 5
+    {x:550,y:400,rotation:0,type:'LED',id:7,active:false},      // 6
+
+    // Circuit 3: 2 switches → NOT each → junction → NOT → LED
+    {x:150,y:530,rotation:0,type:'SWITCH',id:8,active:false},   // 7
+    {x:150,y:660,rotation:0,type:'SWITCH',id:9,active:false},   // 8
+    {x:350,y:530,rotation:0,type:'not/nor',id:10,active:false}, // 9
+    {x:350,y:660,rotation:0,type:'not/nor',id:11,active:false}, // 10
+    {x:500,y:595,rotation:0,type:'JUNCTION',id:12,active:false},// 11
+    {x:650,y:595,rotation:0,type:'not/nor',id:13,active:false}, // 12
+    {x:850,y:595,rotation:0,type:'LED',id:14,active:false},     // 13
+
+    // Circuit 4: 2 switches → NOT (NOR) → 2 NOTs (+ switches cross) → junction → LED
+    {x:150,y:800,rotation:0,type:'SWITCH',id:15,active:false},   // 14 SW_top
+    {x:150,y:930,rotation:0,type:'SWITCH',id:16,active:false},   // 15 SW_bot
+    {x:400,y:865,rotation:0,type:'not/nor',id:18,active:false},  // 16 NOT_main (NOR)
+    {x:600,y:800,rotation:0,type:'not/nor',id:19,active:false},  // 17 NOT_top
+    {x:600,y:930,rotation:0,type:'not/nor',id:20,active:false},  // 18 NOT_bot
+    {x:750,y:865,rotation:0,type:'JUNCTION',id:21,active:false}, // 19 JCT_out
+    {x:900,y:865,rotation:0,type:'LED',id:22,active:false}       // 20 LED
+  ],connections:[
+    // Circuit 1
+    {startIndex:0,startType:'output',endIndex:2,endType:'junction'},
+    {startIndex:1,startType:'output',endIndex:2,endType:'junction'},
+    {startIndex:2,startType:'junction',endIndex:3,endType:'input'},
+    // Circuit 2
+    {startIndex:4,startType:'output',endIndex:5,endType:'input'},
+    {startIndex:5,startType:'output',endIndex:6,endType:'input'},
+    // Circuit 3
+    {startIndex:7,startType:'output',endIndex:9,endType:'input'},
+    {startIndex:8,startType:'output',endIndex:10,endType:'input'},
+    {startIndex:9,startType:'output',endIndex:11,endType:'junction'},
+    {startIndex:10,startType:'output',endIndex:11,endType:'junction'},
+    {startIndex:11,startType:'junction',endIndex:12,endType:'input'},
+    {startIndex:12,startType:'output',endIndex:13,endType:'input'},
+    // Circuit 4
+    {startIndex:14,startType:'output',endIndex:16,endType:'input'},     // SW_top → NOT_main (NOR input 1)
+    {startIndex:15,startType:'output',endIndex:16,endType:'input'},     // SW_bot → NOT_main (NOR input 2)
+    {startIndex:16,startType:'output',endIndex:17,endType:'input'},     // NOT_main → NOT_top
+    {startIndex:16,startType:'output',endIndex:18,endType:'input'},     // NOT_main → NOT_bot
+    {startIndex:14,startType:'output',endIndex:17,endType:'input'},     // SW_top → NOT_top
+    {startIndex:15,startType:'output',endIndex:18,endType:'input'},     // SW_bot → NOT_bot
+    {startIndex:17,startType:'output',endIndex:19,endType:'junction'},  // NOT_top → JCT_out
+    {startIndex:18,startType:'output',endIndex:19,endType:'junction'},  // NOT_bot → JCT_out
+    {startIndex:19,startType:'junction',endIndex:20,endType:'input'}    // JCT_out → LED
+  ]};
+}
+
+// ══════════════════════════════════════════
+// MENU
+// ══════════════════════════════════════════
+const menuScreen=document.getElementById('menu-screen'),helpOverlay=document.getElementById('help-overlay'),gameUI=document.getElementById('game-ui');
+
+function showMenu(){menuScreen.classList.remove('hidden');gameUI.classList.remove('active');state.selectedToolType=null;document.querySelectorAll('.toolbar-item').forEach(i=>i.classList.remove('selected'));document.getElementById('placement-indicator').style.display='none';}
+
+function startGame(data){menuScreen.classList.add('hidden');gameUI.classList.add('active');if(data)loadLayout(data);else{state.elements=[];state.connections=[];state.signals.clear();state.transform={scale:1,offset:{x:0,y:0}};}resizeCanvas();signals.propagate();draw();}
+
+document.getElementById('btn-new-game').addEventListener('click',()=>startGame(null));
+document.getElementById('btn-demo').addEventListener('click',()=>startGame(getDemoLayout()));
+document.getElementById('btn-load-game').addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{try{startGame(JSON.parse(e.target.result));}catch(err){showToast('Error: '+err.message);}};r.readAsText(f);};i.click();});
+document.getElementById('btn-help').addEventListener('click',()=>helpOverlay.classList.add('visible'));
+document.getElementById('btn-close-help').addEventListener('click',()=>helpOverlay.classList.remove('visible'));
+document.getElementById('btn-help-game').addEventListener('click',()=>helpOverlay.classList.add('visible'));
+document.getElementById('btn-menu').addEventListener('click',showMenu);
+document.getElementById('loadJSON').addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{loadLayout(JSON.parse(ev.target.result));showToast('Loaded');}catch(err){showToast('Error: '+err.message);}};r.readAsText(f);};i.click();});
+document.getElementById('exportJSON').addEventListener('click',exportLayout);
+document.getElementById('btn-grid-snap').addEventListener('click',()=>{
+  state.gridSnap=!state.gridSnap;
+  document.getElementById('btn-grid-snap').classList.toggle('active',state.gridSnap);
+  document.getElementById('btn-grid-snap-mobile').classList.toggle('active',state.gridSnap);
+  showToast(state.gridSnap?'Grid snap ON':'Grid snap OFF');
+  // Snap all existing elements if turning on
+  if(state.gridSnap) { state.elements.forEach(el=>{const s=maybeSnap(el.x,el.y);el.x=s.x;el.y=s.y;}); signals.propagate(); draw(); }
+});
+document.getElementById('btn-grid-snap-mobile').addEventListener('click',()=>{
+  state.gridSnap=!state.gridSnap;
+  document.getElementById('btn-grid-snap').classList.toggle('active',state.gridSnap);
+  document.getElementById('btn-grid-snap-mobile').classList.toggle('active',state.gridSnap);
+  showToast(state.gridSnap?'Grid snap ON':'Grid snap OFF');
+  if(state.gridSnap) { state.elements.forEach(el=>{const s=maybeSnap(el.x,el.y);el.x=s.x;el.y=s.y;}); signals.propagate(); draw(); }
+});
+
+// ══════════════════════════════════════════
+// MENU VISUALS
+// ══════════════════════════════════════════
+function drawMenuScene() {
+  const c = document.getElementById('menu-scene-canvas');
+  c.width = window.innerWidth; c.height = window.innerHeight;
+  const g = c.getContext('2d');
+  const sp = 45;
+  
+  // Subtle grid lines
+  g.strokeStyle = 'rgba(232,168,56,0.025)';
+  g.lineWidth = 0.5;
+  for (let x = 0; x < c.width; x += sp) { g.beginPath(); g.moveTo(x,0); g.lineTo(x,c.height); g.stroke(); }
+  for (let y = 0; y < c.height; y += sp) { g.beginPath(); g.moveTo(0,y); g.lineTo(c.width,y); g.stroke(); }
+  
+  // Grid dots
+  g.fillStyle = 'rgba(232,168,56,0.06)';
+  for (let x = 0; x < c.width; x += sp)
+    for (let y = 0; y < c.height; y += sp) {
+      g.beginPath(); g.arc(x, y, 1.2, 0, Math.PI*2); g.fill();
+    }
+  
+  // Ambient glow blobs
+  const grad1 = g.createRadialGradient(c.width*0.3, c.height*0.25, 0, c.width*0.3, c.height*0.25, c.width*0.4);
+  grad1.addColorStop(0, 'rgba(232,168,56,0.03)'); grad1.addColorStop(1, 'transparent');
+  g.fillStyle = grad1; g.fillRect(0,0,c.width,c.height);
+  
+  const grad2 = g.createRadialGradient(c.width*0.7, c.height*0.7, 0, c.width*0.7, c.height*0.7, c.width*0.35);
+  grad2.addColorStop(0, 'rgba(60,100,180,0.02)'); grad2.addColorStop(1, 'transparent');
+  g.fillStyle = grad2; g.fillRect(0,0,c.width,c.height);
+}
+
+function drawMenuWire() {
+  const c = document.getElementById('menu-wire-canvas');
+  const g = c.getContext('2d');
+  const w = c.width, h = c.height;
+  g.clearRect(0,0,w,h);
+  
+  // Draw a decorative wire path with nodes
+  const cx = w/2, cy = h/2;
+  
+  // Wire
+  g.strokeStyle = 'rgba(232,168,56,0.2)';
+  g.lineWidth = 4;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(60, cy);
+  g.bezierCurveTo(140, cy-30, 200, cy+30, cx, cy);
+  g.bezierCurveTo(cx+80, cy-30, cx+140, cy+30, w-60, cy);
+  g.stroke();
+  
+  // Active highlight on wire
+  g.strokeStyle = 'rgba(240,192,80,0.35)';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(60, cy);
+  g.bezierCurveTo(140, cy-30, 200, cy+30, cx, cy);
+  g.bezierCurveTo(cx+80, cy-30, cx+140, cy+30, w-60, cy);
+  g.stroke();
+  
+  // Left node
+  const drawNode = (nx, ny, r, active) => {
+    const bg = g.createRadialGradient(nx-2, ny-2, 0, nx, ny, r*1.3);
+    bg.addColorStop(0, active ? '#4a4058' : '#354048');
+    bg.addColorStop(1, active ? '#38303e' : '#283038');
+    g.fillStyle = bg;
+    g.beginPath(); g.arc(nx, ny, r, 0, Math.PI*2); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.06)';
+    g.lineWidth = 1;
+    g.beginPath(); g.arc(nx, ny, r, 0, Math.PI*2); g.stroke();
+    if (active) {
+      // Connector glow
+      g.fillStyle = 'rgba(240,192,80,0.6)';
+      g.save(); g.beginPath(); g.arc(nx, ny, r, 0, Math.PI*2); g.clip();
+      g.beginPath(); g.arc(nx+r, ny, r*0.45, 0, Math.PI*2); g.fill();
+      g.restore();
+    }
+  };
+  
+  drawNode(40, cy, 14, true);
+  drawNode(cx, cy, 16, true);
+  drawNode(w-40, cy, 14, false);
+  
+  // Center node label
+  g.fillStyle = 'rgba(176,168,184,0.6)';
+  g.font = `bold 8px ${THEME.nodeFont}`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('NOT', cx, cy);
+  g.fillText('SW', 40, cy);
+  g.fillText('LED', w-40, cy);
+}
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+window.addEventListener('resize',()=>{if(gameUI.classList.contains('active'))resizeCanvas();drawMenuScene();});
+drawMenuScene();drawMenuWire();drawToolbarPreviews();setupMobileToolbar();resizeCanvas();
+document.addEventListener('gesturestart',e=>e.preventDefault(),{passive:false});
+document.addEventListener('gesturechange',e=>e.preventDefault(),{passive:false});
+</script>
+</body>
+</html>
